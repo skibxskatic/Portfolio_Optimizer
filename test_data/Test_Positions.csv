@@ -1,0 +1,4 @@
+Account Number,Account Name,Symbol,Description,Quantity,Last Price,Last Price Change,Current Value,Today's Gain/Loss Dollar,Today's Gain/Loss Percent,Total Gain/Loss Dollar,Total Gain/Loss Percent,Percent Of Account,Cost Basis Total,Average Cost Basis,Type
+TEST0001,INDIVIDUAL,SPY,SPDR S&P 500 ETF,2.0,$500.00,-$1.00,$1000.00,-$2.00,-0.20%,+$200.00,+25.00%,100.00%,$800.00,$400.00,Cash,
+TEST0001,INDIVIDUAL,SCHD,SCHWAB US DIVIDEND EQUITY ETF,2.0,$100.00,+$0.50,$200.00,+$1.00,+0.50%,-$40.00,-16.66%,100.00%,$240.00,$120.00,Cash,
+TEST0001,INDIVIDUAL,FXAIX,FIDELITY 500 INDEX FUND,1.0,$200.00,+$0.20,$200.00,+$0.20,+0.10%,+$50.00,+33.33%,100.00%,$150.00,$150.00,Cash,

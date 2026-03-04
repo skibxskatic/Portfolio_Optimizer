@@ -1,0 +1,9 @@
+# Ignore raw financial data
+data/*.csv
+data/*.xlsx
+data/*.json
+
+# Python
+__pycache__/
+venv/
+.env
