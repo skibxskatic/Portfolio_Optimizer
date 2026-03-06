@@ -5,7 +5,9 @@ from pathlib import Path
 def load_fidelity_positions(csv_path: str | Path) -> pd.DataFrame:
     """
     Loads and cleans the Fidelity 'Portfolio_Positions' CSV file.
-    Fidelity CSVs often have empty lines or summary data at the bottom that breaks standard parsing.
+    CRITICAL: This file MUST be a fresh export right before running the analyzer.
+    The engine relies entirely on this file for true current share quantities and 
+    intentionally ignores 'Sell' transactions in history exports to prevent math errors.
     """
     path = Path(csv_path)
     if not path.exists():

@@ -21,7 +21,8 @@
 
 ### Phase 1: Ingestion & Parsing (Data Layer)
 *   **Fidelity CSV Parser:** A robust Pandas module designed specifically to ingest Fidelity's standard CSV structures (skipping header metadata, mapping column names). Supports automatic aggregation of multiple `Accounts_History*.csv` files.
-*   **Tax Lot Unrolling:** Break down aggregate ticker holdings into individual tax lots (Purchase Date, Cost Basis, Current Value) to calculate holding periods using FIFO (First-In-First-Out) accounting.
+    *   **Data Freshness Requirement:** The parser relies on `Portfolio_Positions.csv` as the absolute source of truth for the *current* quantity of shares held today. A fresh export is required per run.
+*   **Tax Lot Unrolling:** Break down aggregate ticker holdings into individual tax lots (Purchase Date, Cost Basis, Current Value) to calculate holding periods using FIFO (First-In-First-Out) accounting. The unroller intentionally **ignores sell transactions** in the history CSVs, as applying sells manually would double-count share depletion already reflected in the current positions file.
 *   **401k PDF Parser (`401k_parser.py`):** A dedicated parser for Fidelity NetBenefits 401k statement PDFs. Extracts current holdings (fund name, ticker, shares, market value, cost basis) from the statement PDF using text extraction (`pypdf`). A hardcoded fund name → ticker mapping is derived from the employer's Investment Options PDF. Tax lot analysis is **not applicable** to 401k accounts (tax-deferred).
 
 ### Phase 2: Market Intelligence Engine
@@ -32,7 +33,7 @@
 ### Phase 3: The Optimization Engine (Ruleset)
 
 #### 3a. Tax Lot Screening
-*   **The "One-Year Wait" Screener:** Group all unprofitable lots and profitable lots into STCG (< 1 year) and LTCG (> 1 year) buckets.
+*   **The "One-Year Wait" Screener:** Group all unprofitable lots and profitable lots into STCG (< 1 year) and LTCG (> 1 year) buckets. The output must indicate the originating **Account Name** for each lot grouping alongside the symbol to clarify where the gains reside.
 *   **De Minimis Gain Override:** Lots with unrealized STCG gains below **1% of the lot's current value** are flagged as *"Safe to reallocate — gain is immaterial"* regardless of holding period. This prevents being locked into an underperforming fund over negligible tax savings. The threshold is **configurable** via a `DE_MINIMIS_GAIN_PCT` constant (default: `0.01`).
 *   **Tax-Loss Harvesting (TLH) Detector:** Identify lots currently held at a loss that can be sold to offset other gains, alongside generating a list of highly correlated substitute ETFs (to avoid wash sales).
 
@@ -105,11 +106,12 @@ Rather than a single global scoring formula, the engine uses **account-specific 
 *   **Portfolio Analysis Report (`Portfolio_Analysis_Report.md`):** The engine's sole output interface is a comprehensive markdown document. Asset Holding Breakdowns must group assets by Account Name first, and Suggested Action second.
     *   *Example output: "Your mutual fund XYZ charges 0.65% but only returns 7.2% net-of-fees over 5 years. FSKAX returns 9.8% net-of-fees at 0.015% ER. Switching could improve your net returns."*
     *   *Example (De Minimis): "You hold 20 shares of ABC at a $1.50 STCG gain (0.3% of lot value). This is below the 1% de minimis threshold — safe to reallocate without material tax impact."*
-    *   **Replacement Optimizer:** Dynamically recommends lower-fee ETF/Mutual Fund alternatives (no individual stocks). The engine MUST output **three** separate recommendation tables (up to 5 candidates each):
+    *   **Replacement Optimizer:** Dynamically recommends lower-fee ETF/Mutual Fund alternatives (no individual stocks). The engine MUST output **three** separate recommendation tables (up to 5 candidates each). The recommendation tables must visually group the primary scoring metrics (e.g., `Net 5Y Ret`, `Sharpe (5Y)`) immediately after the fund identity and before the raw `1Y Ret`/`3Y Ret`/`5Y Ret` returns, making the time horizons for each metric explicitly clear in the column headers:
         *   **Roth IRA:** Maximum-growth funds scored by Sortino Ratio and total return.
         *   **401k / HSA:** Income/dividend-focused funds scored by Sharpe Ratio and yield consistency. For 401k, candidates are constrained to the employer's plan fund menu.
         *   **Taxable Brokerage:** Tax-efficient growth funds scored by Sharpe Ratio and low distribution yield.
     *   **401k Holdings Summary:** When 401k data is present, the report includes a dedicated section evaluating each 401k fund against the plan's available alternatives using the same metrics pipeline.
+    *   **Capital Gains Screener:** The screener MUST automatically exclude all tax-advantaged accounts (e.g., Roth IRA, 401k/HSA) since capital gains rules do not apply to them. It must only evaluate lots in Taxable Brokerage accounts and visually group the output table sorted primarily by Account Name.
     *   **Evaluation Metrics Summary:** The report MUST include a dedicated section explaining:
         *   Each evaluation metric used (Net-of-Fees Return, Sharpe Ratio, Sortino Ratio, Max Drawdown, Tracking Error, Total Return 10Y).
         *   Why each metric was selected for its respective account type.

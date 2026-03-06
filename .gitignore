@@ -7,3 +7,12 @@ data/*.json
 __pycache__/
 venv/
 .env
+
+# System / Logs
+.DS_Store
+*.log
+
+# Documents / Generated Artifacts
+*.pdf
+data/*.pdf
+data/Portfolio_Analysis_Report.md

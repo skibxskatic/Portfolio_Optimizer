@@ -2,6 +2,8 @@
 
 ## 1. Export Your Data from Fidelity
 
+> **🚨 CRITICAL:** You **must always** download a fresh `Portfolio_Positions_...csv` file right before running the Optimizer. The engine relies entirely on this file for your *current* share quantities. Because Fidelity History exports are limited to 90 days and often miss older sell events, the engine intentionally ignores "Sell" transactions to prevent math errors. **If you do not provide an updated Positions file, your recent trades will not be reflected in the analysis!**
+
 ### Brokerage, Roth IRA, and HSA Accounts (CSV)
 1. Log in to your Fidelity account on a desktop browser.
 2. Navigate to the **"Positions"** tab.
@@ -24,34 +26,32 @@
 ## 2. Place Your Data in the Project
 For the privacy and security of your financial data, the downloaded files MUST be placed in the local `data/` folder. This folder is explicitly ignored by version control (Git) so your balances will never be uploaded to the cloud.
 
-1. Move your single `Portfolio_Positions_...csv` file and **ALL** of your individual `Accounts_History...csv` files into:
-   `e:\GenAI_Antigravity_Projects\02_Active_Projects\Fidelity_Optimizer\data\`
+1. Move your single `Portfolio_Positions_...csv` file and **ALL** of your individual `Accounts_History...csv` files into the `data/` folder located inside the `Fidelity_Optimizer` project directory you just downloaded.
 
 > **Engine Feature:** The Optimizer is programmed to automatically stitch all your History files together! Just drop them all into the `data/` folder—you do not need to manually combine them.
 
 ## 3. Run the Optimizer
 The Optimizer generates a comprehensive Markdown report with all findings.
 
-### Option A: The Execution Script (Recommended)
-Launch the Optimizer in a single click using the included PowerShell script:
+### Option A: The One-Click Executable (Recommended)
+Launch the Optimizer in a single click without opening a terminal or configuring execution policies:
 
-1. Open your File Explorer and navigate to: `e:\GenAI_Antigravity_Projects\02_Active_Projects\Fidelity_Optimizer\`
-2. Right-click on `run_optimizer.ps1`
-3. Select **"Run with PowerShell"**
+1. Open your File Explorer and navigate to the `Fidelity_Optimizer` folder you downloaded.
+2. Double-click **`Fidelity_Optimizer.bat`** (the file with the gear/window icon).
 
-Alternatively, if you are already in the IDE terminal, just run:
+Alternatively, if you are already in the IDE terminal, you can run the PowerShell script directly:
 ```bash
 .\run_optimizer.ps1
 ```
 
 ### Option B: Direct Python Execution
 ```bash
-cd e:\GenAI_Antigravity_Projects\02_Active_Projects\Fidelity_Optimizer\
+cd path\to\your\downloaded\Fidelity_Optimizer\
 .\venv\Scripts\Activate.ps1
 python portfolio_analyzer.py
 ```
 
-Both options generate `data/Portfolio_Analysis_Report.md`. Open this file in your IDE or a Markdown reader to see the comprehensive breakdown.
+🎉 **That's it!** The engine will automatically generate a timestamped `.pdf` version of your report and instantly pop it open on your screen so you can immediately review your insights. A permanent copy is saved in your project folder.
 
 ## 4. Understanding the Output Report
 

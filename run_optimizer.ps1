@@ -18,7 +18,9 @@ else {
 
 # 2. Run the application
 try {
-    Write-Host "Generating full portfolio analysis report..." -ForegroundColor Cyan
+    Write-Host "`n[!] CRITICAL REMINDER: Ensure you have JUST downloaded a fresh Portfolio_Positions.csv from Fidelity." -ForegroundColor Yellow
+    Write-Host "    The engine ignores 'Sells' in History files and relies entirely on your Positions file for true current quantities." -ForegroundColor Yellow
+    Write-Host "`nGenerating full portfolio analysis report..." -ForegroundColor Cyan
     python portfolio_analyzer.py
 }
 catch {

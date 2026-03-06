@@ -1,3 +1,4 @@
+import sys
 import pandas as pd
 from pathlib import Path
 import market_data
@@ -240,6 +241,20 @@ if __name__ == "__main__":
     
     data_dir = Path("data")
     positions_files = list(data_dir.glob("Portfolio_Positions*.csv"))
-    if positions_files:
+    if not positions_files:
+        print("⚠️ No Positions CSV found to validate.")
+        ingest_ok = True
+    elif len(positions_files) > 1:
+        print(f"❌ Ingestion Checksum FAILED: Found {len(positions_files)} 'Portfolio_Positions' CSVs.")
+        print("Please keep exactly ONE positions file in the data/ folder.")
+        ingest_ok = False
+    else:
         df = parser.load_fidelity_positions(positions_files[0])
         ingest_ok = verify_ingestion(positions_files[0], df)
+
+    if api_ok and screener_ok and routing_ok and metrics_ok and ingest_ok:
+        print("\n✅ ALL QA CHECKS PASSED. Engine is safe to run.")
+        sys.exit(0)
+    else:
+        print("\n❌ QA CHECKS FAILED. Do not run portfolio analysis.")
+        sys.exit(1)

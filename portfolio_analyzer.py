@@ -1,9 +1,12 @@
+import os
+import io
 import parser
 import market_data
 import metrics
 import pandas as pd
 from pathlib import Path
 import validator
+from markdown_pdf import Section, MarkdownPdf
 
 # --- Configuration Constants ---
 
@@ -87,6 +90,9 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         print("Aborting portfolio analysis to protect report integrity.")
         return
     print("--- ALL QA PASSED, BEGINNING ENGINE RUN ---\n")
+    print("⚠️  CRITICAL REMINDER: Ensure your Portfolio_Positions CSV is freshly exported.")
+    print("    The engine relies entirely on this file for current share quantities and")
+    print("    intentionally ignores 'Sell' transactions in history exports to prevent math errors.\n")
 
     # Fetch live risk-free rate once at the start
     rf = metrics.fetch_risk_free_rate()
@@ -99,6 +105,12 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         if not positions_files:
             print("No Positions CSV found in data/")
             return
+        if len(positions_files) > 1:
+            print(f"❌ ERROR: Found {len(positions_files)} 'Portfolio_Positions' CSVs in data/.")
+            print("To guarantee data freshness, the engine requires exactly ONE positions file to serve as the single source of truth.")
+            print("Please delete the older exports from the data/ folder.")
+            return
+
         positions_path = positions_files[0]
 
     print(f"Loading {positions_path.name} locally...")
@@ -149,7 +161,7 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
     if report_path is None:
         report_path = data_dir / "Portfolio_Analysis_Report.md"
 
-    with open(report_path, "w", encoding="utf-8") as f:
+    with io.StringIO() as f:
         f.write("# Fidelity Portfolio Optimization Report\n\n")
 
         # Add generation timestamp
@@ -224,12 +236,24 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         f.write("\n### ⏳ Capital Gains 'One-Year Wait' Screener\n")
         f.write(f"Profitable lots held for under 365 days are subject to your ordinary income tax rate. Waiting 1 year drops this to the much lower LTCG (15-20%) bracket.\n\n")
         f.write(f"**De Minimis Threshold:** Lots with STCG gains below **{DE_MINIMIS_GAIN_PCT*100:.0f}% of lot value** are flagged as safe to reallocate.\n\n")
-        f.write("| Symbol | Lots STCG | Lots LTCG | De Minimis (Safe to Reallocate) |\n")
-        f.write("|---|---|---|---|\n")
+        f.write("| Account Name | Symbol | Lots STCG | Lots LTCG | De Minimis (Safe to Reallocate) |\n")
+        f.write("|---|---|---|---|---|\n")
 
         prof_lots = lots_df[lots_df['Unrealized Gain'] > 0]
         if not prof_lots.empty:
+            # First map symbols to their originating account names from the main df
+            sym_to_account = df.set_index('Symbol')['Account Name'].to_dict()
+            
+            screener_rows = []
+
             for sym in prof_lots['Symbol'].dropna().unique():
+                account_name = sym_to_account.get(sym, 'Unknown Account')
+                
+                # Check 1: Is this account even subject to capital gains tax?
+                account_type = resolve_account_type(account_name) # Using resolve_account_type from earlier in the code
+                if account_type != "Taxable Brokerage":
+                    continue # Skip Roth IRAs, HSAs, 401ks (tax-advantaged)
+                
                 sym_lots = prof_lots[prof_lots['Symbol'] == sym]
                 stcg_lots = sym_lots[sym_lots['Tax_Category'] == 'STCG (<1yr)']
                 ltcg_count = len(sym_lots[sym_lots['Tax_Category'] == 'LTCG (>1yr)'])
@@ -245,10 +269,29 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
                     else:
                         regular_stcg_count += 1
 
-                de_minimis_msg = f"✅ {de_minimis_count} lot(s) — gain < {DE_MINIMIS_GAIN_PCT*100:.0f}%" if de_minimis_count > 0 else "—"
-                f.write(f"| **{sym}** | {regular_stcg_count} Pending | {ltcg_count} Safe | {de_minimis_msg} |\n")
+                if regular_stcg_count == 0 and ltcg_count == 0 and de_minimis_count == 0:
+                    continue
+
+                de_min_text = f"✅ {de_minimis_count} lot(s) — gain < 1%" if de_minimis_count > 0 else "—"
+                
+                screener_rows.append({
+                    "Account": account_name,
+                    "Symbol": sym,
+                    "STCG": f"{regular_stcg_count} Pending",
+                    "LTCG": f"{ltcg_count} Safe",
+                    "DeMinimis": de_min_text
+                })
+
+            # Sort by Account Name then Symbol
+            screener_rows = sorted(screener_rows, key=lambda x: (x["Account"], x["Symbol"]))
+
+            if not screener_rows:
+                f.write("*Amazing! No assets are currently held at a short-term capital gain in your Taxable accounts.*\n")
+            else:
+                for row in screener_rows:
+                    f.write(f"| {row['Account']} | **{row['Symbol']}** | {row['STCG']} | {row['LTCG']} | {row['DeMinimis']} |\n")
         else:
-            f.write("| N/A | No profitable lots exist | - | - |\n")
+            f.write("*Amazing! No assets are currently held at a short-term capital gain in your Taxable accounts.*\n")
 
         # --- Section 4: Recommended Replacements (3-Bucket) ---
         f.write("\n## 4. Recommended Replacement Funds\n")
@@ -316,30 +359,50 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
             f.write(f"### {title}\n")
             f.write(f"{description}\n\n")
 
-            header = "| Ticker | Fund Name | ER | Yield | Net 5Y | 1Y | 3Y | 5Y |"
-            divider = "|---|---|---|---|---|---|---|---|"
+            # Rearrange columns: ER, Yield, Net 5Y Ret, [Extra Metrics], 1Y Ret, 3Y Ret, 5Y Ret
+            header = "| Ticker | Fund Name | ER | Yield | Net 5Y Ret |"
+            divider = "|---|---|---|---|---|"
+            
             if extra_cols:
                 for col_name in extra_cols:
                     header += f" {col_name} |"
                     divider += "---|"
+                    
+            header += " 1Y Ret | 3Y Ret | 5Y Ret |"
+            divider += "---|---|---|"
+            
             f.write(header + "\n")
             f.write(divider + "\n")
 
             if not funds:
-                f.write("| N/A | No funds matched criteria | - | - | - | - | - | - |")
+                f.write("| N/A | No funds matched criteria | - | - | - |")
                 if extra_cols:
                     f.write(" - |" * len(extra_cols))
-                f.write("\n")
+                f.write(" - | - | - |\n")
+                
             for c in funds[:5]:
                 nof = c.get('net_of_fees_5y', 0)
                 r1 = f"{c['1y_return']*100:+.2f}%"
                 r3 = f"{c['3y_return']*100:+.2f}%"
                 r5 = f"{c['5y_return']*100:+.2f}%"
                 nof_str = f"{nof*100:+.2f}%" if nof else "N/A"
-                row = f"| **{c['ticker']}** | {c['name']} | `{c['er']:.2f}%` | *{c['yield']*100:.2f}%* | {nof_str} | {r1} | {r3} | {r5} |"
+                
+                row = f"| **{c['ticker']}** | {c['name']} | `{c['er']:.2f}%` | *{c['yield']*100:.2f}%* | {nof_str} |"
+                
                 if extra_cols:
                     for col_key in extra_cols:
-                        key = col_key.lower().replace(" ", "_").replace("(", "").replace(")", "")
+                        # Extract the base key name (e.g. "Sharpe Ratio (5Y)" -> "sharpe_ratio", "10Y Ret" -> "total_return_10y")
+                        if "10Y" in col_key:
+                            key = "total_return_10y"
+                        elif "Sharpe" in col_key:
+                            key = "sharpe_ratio"
+                        elif "Sortino" in col_key:
+                            key = "sortino_ratio"
+                        elif "Max DD" in col_key:
+                            key = "max_drawdown"
+                        else:
+                            key = col_key.lower().replace(" ", "_").replace("(", "").replace(")", "")
+                            
                         val = c.get(key)
                         if val is None:
                             row += " N/A |"
@@ -349,6 +412,8 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
                             row += f" {val*100:.2f}% |"
                         else:
                             row += f" {val} |"
+                            
+                row += f" {r1} | {r3} | {r5} |"
                 f.write(row + "\n")
             f.write("\n")
 
@@ -356,19 +421,19 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
             roth_candidates,
             "🚀 Roth IRA — Maximum Growth",
             "These funds maximize total return. All growth is permanently tax-free. Scored by Sortino Ratio + Net-of-Fees 5Y Return + 10Y Total Return.",
-            extra_cols=["Sortino_Ratio"]
+            extra_cols=["Sortino (5Y)", "10Y Ret"]
         )
         write_fund_table(
             k401_hsa_candidates,
             "💰 401k / HSA — Income & Dividends",
             "High-yield funds for tax-deferred accounts. Dividends compound without annual drag. Scored by Sharpe Ratio + Net-of-Fees 5Y Return.",
-            extra_cols=["Sharpe_Ratio"]
+            extra_cols=["Sharpe (5Y)"]
         )
         write_fund_table(
             taxable_candidates,
             "🏦 Taxable Brokerage — Tax-Efficient Growth",
             "Low-distribution growth funds that minimize taxable events. Scored by Sharpe Ratio + Net-of-Fees 5Y Return + low-yield bonus.",
-            extra_cols=["Sharpe_Ratio", "Max_Drawdown"]
+            extra_cols=["Sharpe (5Y)", "Max DD (5Y)"]
         )
 
         # --- Section 5: Evaluation Metrics Summary ---
@@ -389,8 +454,28 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         f.write("- **Roth IRA:** Maximizes total return using Sortino (ignores upside volatility). 10Y track record validates durable compounding. This is your most valuable tax shelter — put your biggest growers here.\n")
         f.write("- **401k / HSA:** Balances income generation with consistency (Sharpe). Tracking Error ensures index fund fidelity. Tax-deferred, so dividends compound without annual drag.\n")
 
-    print(f"\n✅ Privacy-safe report successfully generated at: {report_path.absolute()}")
-    print("Please open this markdown file locally to view your optimization insights.")
+        markdown_content = f.getvalue()
+
+    # 4. Save exact markdown to data/ cache
+    with open(report_path, "w", encoding="utf-8") as md_file:
+        md_file.write(markdown_content)
+
+    # 5. Convert to PDF and auto-open (Non-Tech Friendly Pattern)
+    timestamp_file = pd.Timestamp.now().strftime("%b-%d-%Y_%H-%M-%S")
+    pdf_path = Path.cwd() / f"Portfolio_Analysis_Report_{timestamp_file}.pdf"
+    
+    print("Converting report to PDF...")
+    pdf = MarkdownPdf(toc_level=2)
+    pdf.add_section(Section(markdown_content))
+    pdf.save(str(pdf_path))
+
+    print(f"\n✅ Privacy-safe PDF report successfully generated at: {pdf_path.absolute()}")
+    print("Opening your personalized report...")
+    
+    try:
+        os.startfile(str(pdf_path.absolute()))
+    except Exception as e:
+        print(f"⚠️ Could not auto-open the PDF: {e}")
 
 if __name__ == "__main__":
     generate_privacy_report()
