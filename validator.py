@@ -1,6 +1,7 @@
 import pandas as pd
 from pathlib import Path
 import market_data
+import metrics
 import parser
 
 def verify_ingestion(raw_csv_path: Path, parsed_df: pd.DataFrame) -> bool:
@@ -152,9 +153,90 @@ def verify_dynamic_screener() -> bool:
         
     return is_valid
 
+def verify_asset_routing_logic() -> bool:
+    """
+    Reality Check 4: Asset Routing Validation.
+    Fetches benchmarks representing the 3 primary asset categories and asserts
+    that the math classifies them into the correct 3-Bucket Tax Location Routing.
+    - SCHD: High Dividend (Yield >= 2.0%) -> 401k / HSA
+    - QQQ: Tech Growth (Yield < 2.0%, Beta >= 1.0) -> Roth IRA
+    - SPY/VTI: Broad Market (Yield < 2.0%, Beta < 1.0) -> Taxable Brokerage
+    """
+    print("Running Asset Routing QA on known benchmarks (SCHD, QQQ, VTI)...")
+    benchmarks = ["SCHD", "QQQ", "VTI"]
+    metadata = market_data.fetch_ticker_metadata(benchmarks)
+    
+    if len(metadata) < 3:
+         print("\u274c Asset Routing QA FAILED: Could not fetch all benchmarks.")
+         return False
+         
+    expected_routing = {
+        "SCHD": "401k / HSA",
+        "QQQ": "Roth IRA",
+        "VTI": "Taxable Brokerage",
+    }
+    
+    is_valid = True
+    for ticker in benchmarks:
+        data = metadata.get(ticker, {})
+        yld = data.get("yield", 0.0)
+        beta = data.get("beta", 1.0)
+        
+        # 3-Bucket routing logic (mirrors portfolio_analyzer.py)
+        if yld >= 0.02:
+            routing = "401k / HSA"
+        elif yld < 0.02 and beta > 1.0:
+            routing = "Roth IRA"
+        else:
+            routing = "Taxable Brokerage"
+            
+        expected = expected_routing[ticker]
+        if routing != expected:
+            print(f"\u274c Asset Routing QA FAILED: {ticker} (Yield: {yld:.3f}, Beta: {beta:.3f}) routed to '{routing}' instead of '{expected}'.")
+            is_valid = False
+            
+    if is_valid:
+         print("\u2705 Asset Routing QA PASSED: 3-Bucket routing logic is correct.")
+         
+    return is_valid
+
+
+def verify_metrics_computation() -> bool:
+    """
+    Reality Check 5: Metrics Computation Validation.
+    Computes Sharpe, Sortino, and Max Drawdown on SPY and asserts they are
+    within sane bounds. This catches regressions in the metrics engine.
+    """
+    print("Running Metrics Computation QA on SPY...")
+    
+    rf = metrics.fetch_risk_free_rate()
+    if not (0.0 <= rf <= 0.15):
+        print(f"\u274c Metrics QA FAILED: Risk-free rate {rf} is out of bounds.")
+        return False
+    
+    sharpe = metrics.compute_sharpe_ratio("SPY", "5y")
+    if sharpe is None or not (-1.0 <= sharpe <= 3.0):
+        print(f"\u274c Metrics QA FAILED: SPY Sharpe Ratio {sharpe} is out of sane bounds.")
+        return False
+    
+    sortino = metrics.compute_sortino_ratio("SPY", "5y")
+    if sortino is None or not (-1.0 <= sortino <= 5.0):
+        print(f"\u274c Metrics QA FAILED: SPY Sortino Ratio {sortino} is out of sane bounds.")
+        return False
+    
+    max_dd = metrics.compute_max_drawdown("SPY", "5y")
+    if max_dd is None or not (-0.60 <= max_dd <= 0.0):
+        print(f"\u274c Metrics QA FAILED: SPY Max Drawdown {max_dd} is out of sane bounds.")
+        return False
+    
+    print(f"\u2705 Metrics QA PASSED: SPY Sharpe={sharpe:.3f}, Sortino={sortino:.3f}, MaxDD={max_dd*100:.1f}%, RF={rf*100:.2f}%")
+    return True
+
 if __name__ == "__main__":
     api_ok = verify_yfinance_sane()
     screener_ok = verify_dynamic_screener()
+    routing_ok = verify_asset_routing_logic()
+    metrics_ok = verify_metrics_computation()
     
     data_dir = Path("data")
     positions_files = list(data_dir.glob("Portfolio_Positions*.csv"))

@@ -1,5 +1,7 @@
 # Fidelity Portfolio Optimization Report
 
+**Generated on:** March 05, 2026 at 09:29 PM
+
 > **Privacy Note:** This report was generated entirely locally. Financial quantities and dollar amounts were NOT transmitted to the cloud AI.
 
 ## 1. High-Level Metrics
@@ -61,12 +63,12 @@ The following lots are currently held at a loss. Selling these will harvest the 
 
 | Symbol | Description | Tax Category | Underwater Lots |
 |---|---|---|---|
-| **AAPL** | APPLE INC | STCG (<1yr) | 2 lot(s) underwater |
+| **AAPL** | APPLE INC | STCG (<1yr) | 3 lot(s) underwater |
 | **FELG** | FIDELITY ENHANCED LARGE CAP GROWTH ETF | STCG (<1yr) | 20 lot(s) underwater |
 | **FNCL** | FIDELITY MSCI FINLS INDEX ETF | STCG (<1yr) | 3 lot(s) underwater |
 | **FNCMX** | FIDELITY NASDAQ COMPOSITE INDEX | STCG (<1yr) | 2 lot(s) underwater |
 | **FNILX** | FIDELITY ZERO LARGE CAP INDEX FUND | STCG (<1yr) | 3 lot(s) underwater |
-| **FTEC** | FIDELITY MSCI INFORMATION TECHNOLOGY INDEX ETF | STCG (<1yr) | 42 lot(s) underwater |
+| **FTEC** | FIDELITY MSCI INFORMATION TECHNOLOGY INDEX ETF | STCG (<1yr) | 48 lot(s) underwater |
 | **ONEQ** | FIDELITY NASDAQ COMPOSITE INDEX ETF | STCG (<1yr) | 3 lot(s) underwater |
 | **SPYG** | SPDR SERIES TRUST STATE STREET PORTFOLIO S&P 500 GROWTH ETF | STCG (<1yr) | 3 lot(s) underwater |
 | **SPYM** | SPDR PORTFOLIO S&P 500 ETF | STCG (<1yr) | 2 lot(s) underwater |
@@ -80,22 +82,22 @@ Profitable lots held for under 365 days are subject to your ordinary income tax 
 | Symbol | Lots Held < 365 Days (STCG - AVOID SELLING) | Lots Held > 365 Days (LTCG - SAFE) |
 |---|---|---|
 | **DIDIY** | 0 Lots Pending | 0 Lots Safe to Sell |
-| **FTEC** | 54 Lots Pending | 23 Lots Safe to Sell |
+| **FTEC** | 54 Lots Pending | 21 Lots Safe to Sell |
 | **AAPL** | 2 Lots Pending | 5 Lots Safe to Sell |
 | **FELG** | 32 Lots Pending | 13 Lots Safe to Sell |
 | **FNCL** | 2 Lots Pending | 4 Lots Safe to Sell |
 | **SMH** | 14 Lots Pending | 0 Lots Safe to Sell |
 | **SPYG** | 2 Lots Pending | 1 Lots Safe to Sell |
-| **FNILX** | 70 Lots Pending | 8 Lots Safe to Sell |
+| **FNILX** | 66 Lots Pending | 12 Lots Safe to Sell |
 | **SPYM** | 3 Lots Pending | 1 Lots Safe to Sell |
-| **SCHD** | 10 Lots Pending | 0 Lots Safe to Sell |
+| **SCHD** | 8 Lots Pending | 0 Lots Safe to Sell |
 | **VGT** | 2 Lots Pending | 0 Lots Safe to Sell |
 | **XLK** | 0 Lots Pending | 0 Lots Safe to Sell |
-| **VYM** | 5 Lots Pending | 0 Lots Safe to Sell |
+| **VYM** | 4 Lots Pending | 0 Lots Safe to Sell |
 | **DGRO** | 17 Lots Pending | 0 Lots Safe to Sell |
 | **SPYV** | 5 Lots Pending | 1 Lots Safe to Sell |
 | **FENY** | 6 Lots Pending | 0 Lots Safe to Sell |
-| **FDVV** | 3 Lots Pending | 0 Lots Safe to Sell |
+| **FDVV** | 2 Lots Pending | 0 Lots Safe to Sell |
 | **FNCMX** | 10 Lots Pending | 3 Lots Safe to Sell |
 | **FBGRX** | 11 Lots Pending | 3 Lots Safe to Sell |
 | **LEGR** | 5 Lots Pending | 4 Lots Safe to Sell |
@@ -106,12 +108,27 @@ Profitable lots held for under 365 days are subject to your ordinary income tax 
 | **DELL** | 1 Lots Pending | 4 Lots Safe to Sell |
 
 ## 4. Recommended Replacements (1-3 Year Horizon)
-For your goal of **1-3 year high percentage returns with minimal expenses and high dividends**, volatility mitigation via strong cash flow is key. The following 5 funds were dynamically selected today based on live market data, ranking highest in yield and 1-year momentum while strictly keeping Expense Ratios below `0.40%`:
+For your goal of **1-3 year high percentage returns with minimal expenses and high dividends**, volatility mitigation via strong cash flow is key. The following funds were dynamically selected today based on live market data, ranking highest in yield and 1-year momentum while strictly keeping Expense Ratios below `0.40%`:
 
-| Ticker | Fund Name | Expense Ratio | Yield | 1-Year | 3-Year (Avg) | 5-Year (Avg) |
-|---|---|---|---|---|---|---|
-| **QQQ** | Invesco QQQ Trust, Series 1 | `0.18%` | *0.45%* | +1.22% | +28.23% | +14.50% |
-| **XLE** | State Street Energy Select Sect | `0.08%` | *2.87%* | +14.05% | +13.60% | +22.88% |
-| **FDVV** | Fidelity High Dividend ETF | `0.15%` | *2.81%* | +2.62% | +19.07% | +15.11% |
-| **SPY** | State Street SPDR S&P 500 ETF T | `0.09%` | *1.05%* | +1.44% | +21.53% | +13.73% |
-| **SCHD** | Schwab US Dividend Equity ETF | `0.06%` | *3.51%* | +8.64% | +12.64% | +10.62% |
+### Tax-Free/Advantaged Accounts (Roth IRA, HSA)
+These funds generate high income/dividends. Place them in tax-advantaged accounts to avoid annual tax drag.
+
+| Ticker | Fund Name | Expense Ratio | Yield | 1-Year | 3-Year (Avg) | 5-Year (Avg) | Tax Location Routing |
+|---|---|---|---|---|---|---|---|
+| **XLE** | State Street Energy Select Sect | `0.08%` | *2.62%* | +25.00% | +12.53% | +21.58% | **Tax-Free (Roth/HSA)** |
+| **SCHD** | Schwab US Dividend Equity ETF | `0.06%` | *3.30%* | +15.74% | +11.88% | +10.56% | **Tax-Free (Roth/HSA)** |
+| **FDVV** | Fidelity High Dividend ETF | `0.15%` | *2.77%* | +4.19% | +18.33% | +15.24% | **Tax-Free (Roth/HSA)** |
+| **VYM** | Vanguard High Dividend Yield ET | `0.04%` | *2.26%* | +8.06% | +15.57% | +13.15% | **Tax-Free (Roth/HSA)** |
+| **SPYD** | State Street SPDR Portfolio S&P | `0.07%` | *4.08%* | +10.99% | +10.50% | +9.71% | **Tax-Free (Roth/HSA)** |
+
+### Taxable Brokerage Accounts (Individual)
+These funds prioritize growth or broad market stability with low distributions, making them highly tax-efficient to hold long term.
+
+| Ticker | Fund Name | Expense Ratio | Yield | 1-Year | 3-Year (Avg) | 5-Year (Avg) | Tax Location Routing |
+|---|---|---|---|---|---|---|---|
+| **QQQ** | Invesco QQQ Trust, Series 1 | `0.18%` | *0.46%* | -1.09% | +27.54% | +15.66% | **Taxable (Individual)** |
+| **SPY** | State Street SPDR S&P 500 ETF T | `0.09%` | *1.06%* | +0.66% | +20.82% | +14.28% | **Taxable (Individual)** |
+| **DGRO** | iShares Core Dividend Growth ET | `0.08%` | *1.96%* | +6.44% | +15.76% | +12.67% | **Taxable (Individual)** |
+| **VIG** | Vanguard Div Appreciation ETF | `0.04%` | *1.56%* | +3.63% | +15.63% | +12.47% | **Taxable (Individual)** |
+| **IWM** | iShares Russell 2000 ETF | `0.19%` | *0.98%* | +6.21% | +11.39% | +4.73% | **Taxable (Individual)** |
+

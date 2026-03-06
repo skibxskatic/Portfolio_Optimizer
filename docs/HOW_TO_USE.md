@@ -1,8 +1,8 @@
 # Fidelity Optimizer: How to Use Guide
 
 ## 1. Export Your Data from Fidelity
-To run the Optimizer, you first need to export your current portfolio and trading history directly from your Fidelity account:
 
+### Brokerage, Roth IRA, and HSA Accounts (CSV)
 1. Log in to your Fidelity account on a desktop browser.
 2. Navigate to the **"Positions"** tab.
 3. In the top right corner of the positions table, click the small **"Download"** icon (it looks like a downward arrow).
@@ -12,74 +12,99 @@ To run the Optimizer, you first need to export your current portfolio and tradin
 6. **Important Note:** Fidelity only allows exporting 90 days of history at a time. To get the full picture for capital gains, you should export multiple 90-day chunks going back 1 to 5 years (e.g., `Accounts_History_Q1.csv`, `Accounts_History_Q2.csv`, etc.).
 7. Click the **"Download"** icon in the top right for each time period you select.
 
-## 2. Place Your Data in the Project
-For the privacy and security of your financial data, the downloaded CSV files MUST be placed in the local `data/` folder. This folder is explicitly ignored by version control (Git) so your balances will never be uploaded to the cloud.
+### 401k Account (PDF)
+1. Log in to **Fidelity NetBenefits** (your employer 401k portal).
+2. Navigate to **"Investments"** → your plan page.
+3. Print or PDF-save the **Balance Overview** page (this contains your current holdings with tickers, shares, and market values).
+4. Also print or PDF-save the **Investment Choices** page (this contains the full menu of funds available in your plan).
+5. Place both PDFs in the `data/` folder.
 
-1. Move your single `Portfolio_Positions_...csv` file and **ALL** of your individual `Accounts_History...csv` files into the following directory:
+> **Note:** The 401k parser requires a one-time PDF text extraction step. Run: `py .agent/skills/pdf_extraction/scripts/extract_text.py "data/your_401k_file.pdf"` for each PDF.
+
+## 2. Place Your Data in the Project
+For the privacy and security of your financial data, the downloaded files MUST be placed in the local `data/` folder. This folder is explicitly ignored by version control (Git) so your balances will never be uploaded to the cloud.
+
+1. Move your single `Portfolio_Positions_...csv` file and **ALL** of your individual `Accounts_History...csv` files into:
    `e:\GenAI_Antigravity_Projects\02_Active_Projects\Fidelity_Optimizer\data\`
 
-> **✨ Engine Feature:** The Optimizer is programmed to automatically stitch all your History files together! Just drop them all into the `data/` folder—you do not need to manually combine them.
+> **Engine Feature:** The Optimizer is programmed to automatically stitch all your History files together! Just drop them all into the `data/` folder—you do not need to manually combine them.
 
 ## 3. Run the Optimizer
-Open your terminal (Command Prompt, PowerShell, or the IDE Terminal) and navigate to the project directory:
+The Optimizer generates a comprehensive Markdown report with all findings.
 
+### Option A: The Execution Script (Recommended)
+Launch the Optimizer in a single click using the included PowerShell script:
+
+1. Open your File Explorer and navigate to: `e:\GenAI_Antigravity_Projects\02_Active_Projects\Fidelity_Optimizer\`
+2. Right-click on `run_optimizer.ps1`
+3. Select **"Run with PowerShell"**
+
+Alternatively, if you are already in the IDE terminal, just run:
+```bash
+.\run_optimizer.ps1
+```
+
+### Option B: Direct Python Execution
 ```bash
 cd e:\GenAI_Antigravity_Projects\02_Active_Projects\Fidelity_Optimizer\
-```
-
-Activate the virtual environment if it isn't already active:
-```bash
 .\venv\Scripts\Activate.ps1
+python portfolio_analyzer.py
 ```
 
-You have two choices for running the analysis:
+Both options generate `data/Portfolio_Analysis_Report.md`. Open this file in your IDE or a Markdown reader to see the comprehensive breakdown.
 
-### Option A: The Terminal UI (Quick Snapshot)
-Run the script to see a quick, color-coded summary directly in your terminal:
-```bash
-py terminal_ui.py
-```
-*Note: This view is secured by our Privacy Guard—it will show you which funds to replace and how many lots are underwater, but it will never print your actual dollar balances to the screen.*
+## 4. Understanding the Output Report
 
-### Option B: The Markdown Report (Deep Dive)
-Run the analyzer to generate a comprehensive, structured document:
-```bash
-py portfolio_analyzer.py
-```
-This will generate a new file at `data/Portfolio_Analysis_Report.md`. Open this file in your IDE or a Markdown reader to see the full, detailed breakdown of your asset health, specific tax-loss harvesting targets, and dynamic replacement ETF recommendations.
+The report contains:
 
-## 4. Understanding the Pre-Flight QA Checks
-Every time you run either `terminal_ui.py` or `portfolio_analyzer.py`, the engine **automatically runs a series of Quality Assurance checks** before processing any of your data. These checks protect you from running analysis on corrupted API data or bad CSV exports.
+1. **High-Level Metrics** — Weighted average expense ratio and live risk-free rate.
+2. **Asset Holding Breakdown** — Every position grouped by account type (Taxable, Roth IRA, 401k/HSA) with suggested actions.
+3. **Tax Optimization** — Tax-loss harvesting candidates, capital gains screener, and de minimis override flags.
+4. **Recommended Replacements** — Three separate tables:
+   - 🚀 **Roth IRA** — Maximum growth funds (scored by Sortino Ratio)
+   - 💰 **401k / HSA** — Income/dividend funds (scored by Sharpe Ratio)
+   - 🏦 **Taxable Brokerage** — Tax-efficient growth funds (scored by Sharpe + low yield)
+5. **Evaluation Metrics Summary** — Explains each metric, why it's used for each account type, and how to interpret scores.
 
-You will see output like this at the start of every run:
+## 5. Understanding the Pre-Flight QA Checks
+Every time you run `portfolio_analyzer.py`, the engine **automatically runs Quality Assurance checks** before processing your data:
+
 ```
 --- PRE-FLIGHT QA CHECKS ---
 Running API Reality Checks against known benchmarks (SPY, SCHD)...
 ✅ API Reality Check PASSED: yfinance extraction logic is structurally sound.
 Running Dynamic Screener QA on live targets...
-🛡️ QA Filter Working: Successfully intercepted and dropped individual stock 'NVDA'...
-✅ Dynamic Screener QA PASSED: Engine successfully filtered raw targets down to N pure ETFs/Funds.
+✅ Dynamic Screener QA PASSED: Engine successfully filtered raw targets.
+Running Asset Routing QA on known benchmarks (SCHD, QQQ, VTI)...
+✅ Asset Routing QA PASSED: 3-Bucket routing logic is correct.
 --- ALL QA PASSED, BEGINNING ENGINE RUN ---
 ```
 
-The three checks that run automatically are:
-1. **API Sanity Check:** Fetches SPY and SCHD and verifies their yield and ER are within known-good bounds. If `yfinance` ever breaks its data format, this check will catch it.
-2. **Dynamic Screener QA:** Verifies that the live-scraped fund candidates are ETFs or Mutual Funds — not individual stocks. The 🛡️ messages confirm that stocks are being intercepted.
-3. **Ingestion Checksum:** (Runs as part of the full report) Confirms that no rows were dropped when your Positions CSV was parsed.
+The checks that run automatically:
+1. **API Sanity Check:** Verifies SPY and SCHD yield/ER are within known-good bounds.
+2. **Dynamic Screener QA:** Confirms live-scraped candidates are ETFs/Mutual Funds, not stocks.
+3. **Asset Routing Validation:** Tests 3-Bucket routing (SCHD→401k/HSA, QQQ→Roth IRA, VTI→Taxable).
+4. **Ingestion Checksum:** Confirms no rows were dropped during CSV parsing.
 
-> **⚠️ If a check fails:** The engine will print a clear `❌ PRE-FLIGHT FAILED` message and abort safely. No partial or corrupted report will be generated.
+> **⚠️ If a check fails:** The engine prints `❌ PRE-FLIGHT FAILED` and aborts safely.
 
-### Running the Validator Standalone (for Debugging)
-If you want to test data integrity without running a full analysis, you can run the validator directly:
+### Running the Validator Standalone
 ```bash
 py validator.py
 ```
-This is useful after updating the codebase, changing dependencies, or troubleshooting data issues.
+This also runs the **Metrics Computation QA** check (Sharpe/Sortino/MaxDD sanity on SPY).
 
-## 5. Diagnostic Tools
-The project also includes a standalone diagnostic tool for advanced analysis:
+## 6. Diagnostic Tools
 
-*   **`er_performance_analyzer.py`** — Analyzes the trade-off between Expense Ratio and fund performance (1-year and 3-year net returns). Run this to validate the current 0.40% ER threshold:
+*   **`er_performance_analyzer.py`** — Analyzes Expense Ratio vs. performance trade-offs:
     ```bash
     py er_performance_analyzer.py
+    ```
+*   **`metrics.py`** — Standalone smoke test for the risk-adjusted metrics engine:
+    ```bash
+    py metrics.py
+    ```
+*   **`401k_parser.py`** — Parse and display 401k holdings from extracted PDF text:
+    ```bash
+    py 401k_parser.py
     ```

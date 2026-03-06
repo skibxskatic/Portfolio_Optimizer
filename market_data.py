@@ -2,6 +2,7 @@ import yfinance as yf
 import pandas as pd
 import requests
 import re
+import metrics
 from typing import Dict, Any
 
 def get_dynamic_etf_universe() -> list[str]:
@@ -82,17 +83,21 @@ def fetch_ticker_metadata(tickers: list[str]) -> Dict[str, Dict[str, Any]]:
             # 3-Year and 5-Year Return handling
             ret_3y = info.get("threeYearAverageReturn", 0.0)
             ret_5y = info.get("fiveYearAverageReturn", 0.0)
-                
+            # Compute precise beta from historical returns instead of yfinance .info
+            computed_beta = metrics.compute_beta(ticker)
+
             metadata[ticker] = {
                 "name": info.get("shortName", ticker),
                 "type": info.get("quoteType", type_str),
                 "expense_ratio_pct": er_pct,
                 "yield": raw_yield,
-                "beta": info.get("beta", 1.0),
+                "beta": computed_beta if computed_beta is not None else info.get("beta", 1.0),
                 "previous_close": info.get("previousClose", 0.0),
                 "1y_return": ret_1y,
                 "3y_return": ret_3y,
-                "5y_return": ret_5y
+                "5y_return": ret_5y,
+                "net_of_fees_5y": metrics.compute_net_of_fees_return(ticker, "5y"),
+                "10y_return": metrics.compute_total_return(ticker, "10y"),
             }
 
         except Exception as e:
