@@ -157,9 +157,9 @@ def verify_dynamic_screener() -> bool:
 def verify_asset_routing_logic() -> bool:
     """
     Reality Check 4: Asset Routing Validation.
-    Fetches benchmarks representing the 3 primary asset categories and asserts
-    that the math classifies them into the correct 3-Bucket Tax Location Routing.
-    - SCHD: High Dividend (Yield >= 2.0%) -> 401k / HSA
+    Fetches benchmarks representing the primary asset categories and asserts
+    that the math classifies them into the correct 4-Bucket Tax Location Routing.
+    - SCHD: High Dividend (Yield >= 2.0%) -> Tax-Deferred (401k / HSA)
     - QQQ: Tech Growth (Yield < 2.0%, Beta >= 1.0) -> Roth IRA
     - SPY/VTI: Broad Market (Yield < 2.0%, Beta < 1.0) -> Taxable Brokerage
     """
@@ -172,7 +172,7 @@ def verify_asset_routing_logic() -> bool:
          return False
          
     expected_routing = {
-        "SCHD": "401k / HSA",
+        "SCHD": "Tax-Deferred",
         "QQQ": "Roth IRA",
         "VTI": "Taxable Brokerage",
     }
@@ -183,9 +183,9 @@ def verify_asset_routing_logic() -> bool:
         yld = data.get("yield", 0.0)
         beta = data.get("beta", 1.0)
         
-        # 3-Bucket routing logic (mirrors portfolio_analyzer.py)
+        # 4-Bucket routing logic (mirrors portfolio_analyzer.py)
         if yld >= 0.02:
-            routing = "401k / HSA"
+            routing = "Tax-Deferred"
         elif yld < 0.02 and beta > 1.0:
             routing = "Roth IRA"
         else:
@@ -197,7 +197,7 @@ def verify_asset_routing_logic() -> bool:
             is_valid = False
             
     if is_valid:
-         print("\u2705 Asset Routing QA PASSED: 3-Bucket routing logic is correct.")
+         print("\u2705 Asset Routing QA PASSED: 4-Bucket routing logic is correct.")
          
     return is_valid
 

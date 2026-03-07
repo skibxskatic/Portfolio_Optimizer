@@ -1,7 +1,7 @@
 # run_optimizer.ps1
 $ErrorActionPreference = "Stop"
 
-Write-Host "Initializing Fidelity Optimizer..." -ForegroundColor Cyan
+Write-Host "Initializing Portfolio Optimizer..." -ForegroundColor Cyan
 
 # 1. Activate the virtual environment
 $VenvActivate = Join-Path $PSScriptRoot "..\venv\Scripts\Activate.ps1"
@@ -24,7 +24,7 @@ if (-Not (Test-Path $cacheDir)) {
 
 # 3. Run the application
 try {
-    Write-Host "`n[!] CRITICAL REMINDER: Ensure you have JUST downloaded a fresh Portfolio_Positions.csv from Fidelity." -ForegroundColor Yellow
+    Write-Host "`n[!] CRITICAL REMINDER: Ensure you have JUST downloaded a fresh Portfolio_Positions.csv from your brokerage." -ForegroundColor Yellow
     Write-Host "    The engine ignores 'Sells' in History files and relies entirely on your Positions file for true current quantities." -ForegroundColor Yellow
     
     Write-Host "`nPress Enter to confirm your data is fresh and begin analysis, or Ctrl+C to cancel..." -ForegroundColor White -NoNewline

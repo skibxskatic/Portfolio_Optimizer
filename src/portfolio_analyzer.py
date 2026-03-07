@@ -8,6 +8,7 @@ from pathlib import Path
 import validator
 import importlib
 k401_parser = importlib.import_module('401k_parser')
+import file_ingestor
 from markdown_pdf import Section, MarkdownPdf
 
 # --- Configuration Constants ---
@@ -16,7 +17,7 @@ ACCOUNT_TYPE_MAP = {
     "INDIVIDUAL": "Taxable Brokerage",
     "Melissa Investments": "Taxable Brokerage",
     "ROTH IRA": "Roth IRA",
-    "Health Savings Account": "401k / HSA",
+    "Health Savings Account": "HSA",
 }
 
 DE_MINIMIS_GAIN_PCT = 0.01  # 1% of lot value — gains below this are safe to reallocate
@@ -25,11 +26,12 @@ DE_MINIMIS_GAIN_PCT = 0.01  # 1% of lot value — gains below this are safe to r
 
 def classify_routing_bucket(yld: float, beta: float) -> str:
     """
-    3-Bucket Tax Location Strategy.
+    4-Bucket Tax Location Strategy.
     Classifies a fund into its optimal tax-location bucket.
+    High-yield funds route to "Tax-Deferred" which covers both 401k and HSA.
     """
     if yld >= 0.02:
-        return "401k / HSA"
+        return "Tax-Deferred"
     elif yld < 0.02 and beta > 1.0:
         return "Roth IRA"
     else:
@@ -67,7 +69,7 @@ def score_candidate(ticker: str, data: dict, routing_bucket: str) -> dict:
         score = (nof * 35) + (sortino * 35) + t10_score
         data.update({"sortino_ratio": sortino, "total_return_10y": total_10y})
 
-    elif routing_bucket == "401k / HSA":
+    elif routing_bucket == "Tax-Deferred":
         sharpe = fund_metrics.get("sharpe_ratio") or 0.0
         te = fund_metrics.get("tracking_error")
         # Lower tracking error = better (fund tracks its index well)
@@ -128,32 +130,48 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         print(f"Loading {history_path.name} locally...")
         hist_df = parser.load_fidelity_history(history_path)
 
-    # --- 401k Auto-Detection ---
+    # --- 401k Auto-Detection (via File Ingestor) ---
     plan_menu_tickers = []
-    k401_options_file = k401_parser.find_401k_options_file(data_dir)
-    if k401_options_file is None:
-        # Also check parent directories (workspace root may have extracted text)
-        for parent in [data_dir.parent, data_dir.parent.parent, data_dir.parent.parent.parent]:
-            k401_options_file = k401_parser.find_401k_options_file(parent)
-            if k401_options_file:
-                break
+    k401_files = file_ingestor.discover_401k_files(data_dir)
+    k401_options_file = None
 
-    if k401_options_file:
-        print(f"\n📋 401k Investment Options detected: {k401_options_file.name}")
-        k401_holdings_df, plan_menu_tickers = k401_parser.parse_401k_options_file(k401_options_file)
+    if k401_files:
+        k401_options_file = k401_files[0]  # Use highest-priority file (PDF > CSV > TXT)
+        print(f"\n📋 401k data detected: {k401_options_file.name} (format: {file_ingestor.detect_format(k401_options_file)})")
+        k401_holdings_df, plan_menu_tickers = file_ingestor.ingest_401k_file(k401_options_file)
 
         if not k401_holdings_df.empty:
             # Merge 401k holdings into the main DataFrame
-            # Align columns: 401k parser returns Symbol, Fund Name, Current Value, Cost Basis Total, Account Name, Account Type
             k401_holdings_df['Description'] = k401_holdings_df['Fund Name']
-            k401_holdings_df['Quantity'] = 0  # Not available from Investment Options PDF
-            k401_holdings_df['Expense Ratio'] = 0.0  # Will be fetched from yfinance below
+            k401_holdings_df['Quantity'] = 0
+            k401_holdings_df['Expense Ratio'] = 0.0
             k401_holdings_df['Last Price'] = 0.0
             df = pd.concat([df, k401_holdings_df], ignore_index=True)
             print(f"   Merged {len(k401_holdings_df)} 401k holdings into the main portfolio.")
     else:
-        print("\nℹ️  No 401k Investment Options text found. 401k analysis will be skipped.")
-        print("   To include 401k: run the PDF text extractor on your Investment Options PDF.")
+        # Fallback: check for legacy extracted text files
+        k401_options_file_legacy = k401_parser.find_401k_options_file(data_dir)
+        if k401_options_file_legacy is None:
+            for parent in [data_dir.parent, data_dir.parent.parent]:
+                k401_options_file_legacy = k401_parser.find_401k_options_file(parent)
+                if k401_options_file_legacy:
+                    break
+
+        if k401_options_file_legacy:
+            k401_options_file = k401_options_file_legacy
+            print(f"\n📋 401k Investment Options detected (legacy): {k401_options_file.name}")
+            k401_holdings_df, plan_menu_tickers = k401_parser.parse_401k_options_file(k401_options_file)
+
+            if not k401_holdings_df.empty:
+                k401_holdings_df['Description'] = k401_holdings_df['Fund Name']
+                k401_holdings_df['Quantity'] = 0
+                k401_holdings_df['Expense Ratio'] = 0.0
+                k401_holdings_df['Last Price'] = 0.0
+                df = pd.concat([df, k401_holdings_df], ignore_index=True)
+                print(f"   Merged {len(k401_holdings_df)} 401k holdings into the main portfolio.")
+        else:
+            print("\nℹ️  No 401k data found. 401k analysis will be skipped.")
+            print("   To include 401k: drop a PDF, CSV, or extracted text file with '401k' in the filename.")
 
     print("Unrolling tax lots to perform LTCG/STCG and Tax-Loss Harvesting analysis...")
     lots_df = parser.unroll_tax_lots(df, hist_df)
@@ -198,7 +216,7 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
     )
 
     with io.StringIO() as f:
-        f.write("# Fidelity Portfolio Optimization Report\n\n")
+        f.write("# Portfolio Optimization Report\n\n")
 
         # Add generation timestamp
         timestamp = pd.Timestamp.now().strftime("%B %d, %Y at %I:%M %p")
@@ -329,7 +347,7 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         else:
             f.write("*Amazing! No assets are currently held at a short-term capital gain in your Taxable accounts.*\n")
 
-        # --- Section 4: Recommended Replacements (3-Bucket) ---
+        # --- Section 4: Recommended Replacements (4-Bucket) ---
         f.write("\n## 4. Recommended Replacement Funds\n")
         f.write("Funds dynamically selected today based on live market data, scored using per-account metrics aligned to each account's investment objective.\n\n")
 
@@ -344,9 +362,10 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         print(f"Discovered {len(candidate_tickers)} candidates. Fetching full historical metadata...")
         candidate_data = market_data.fetch_ticker_metadata(candidate_tickers)
 
-        # Classify, filter, and score candidates into 3 buckets
+        # Classify, filter, and score candidates into 4 buckets
         roth_candidates = []
-        k401_hsa_candidates = []
+        k401_candidates = []
+        hsa_candidates = []
         taxable_candidates = []
 
         for ticker, data in candidate_data.items():
@@ -390,25 +409,29 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
 
             if routing == "Roth IRA":
                 roth_candidates.append(cand)
-            elif routing == "401k / HSA":
-                k401_hsa_candidates.append(cand)
+            elif routing == "Tax-Deferred":
+                # Tax-Deferred candidates go to both 401k and HSA lists
+                k401_candidates.append(cand)
+                hsa_candidates.append(cand)
             else:
                 taxable_candidates.append(cand)
 
         roth_candidates.sort(key=lambda x: x["score"], reverse=True)
-        k401_hsa_candidates.sort(key=lambda x: x["score"], reverse=True)
+        k401_candidates.sort(key=lambda x: x["score"], reverse=True)
+        hsa_candidates.sort(key=lambda x: x["score"], reverse=True)
         taxable_candidates.sort(key=lambda x: x["score"], reverse=True)
 
         # --- 401k Plan Menu Constraint ---
-        # If a 401k plan menu was detected, filter the 401k/HSA replacement candidates
-        # to ONLY include funds available in the employer's plan.
+        # If a 401k plan menu was detected, constrain ONLY 401k candidates to the plan menu.
+        # HSA candidates remain unconstrained (HSA holders can invest in anything).
         if plan_menu_tickers:
-            plan_constrained = [c for c in k401_hsa_candidates if c["ticker"] in plan_menu_tickers]
+            plan_constrained = [c for c in k401_candidates if c["ticker"] in plan_menu_tickers]
             if plan_constrained:
-                k401_hsa_candidates = plan_constrained
+                k401_candidates = plan_constrained
                 print(f"   401k replacement candidates constrained to {len(plan_constrained)} funds from your employer's plan menu.")
             else:
-                print("   ⚠️ No plan menu funds matched the dynamic candidate universe. Showing unconstrained results.")
+                print("   ⚠️ No plan menu funds matched the dynamic candidate universe. Showing unconstrained 401k results.")
+            print(f"   HSA replacement candidates: {len(hsa_candidates)} (unconstrained — full dynamic universe).")
 
         def write_fund_table(funds, title, description, extra_cols=None):
             f.write(f"### {title}\n")
@@ -479,9 +502,15 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
             extra_cols=["Sortino (5Y)", "10Y Ret"]
         )
         write_fund_table(
-            k401_hsa_candidates,
-            "💰 401k / HSA — Income & Dividends",
-            "High-yield funds for tax-deferred accounts. Dividends compound without annual drag. Scored by Sharpe Ratio + Net-of-Fees 5Y Return.",
+            k401_candidates,
+            "💼 Employer 401k — Income & Dividends (Plan-Constrained)",
+            "High-yield funds for your employer 401k. Constrained to your plan menu. Scored by Sharpe Ratio + Net-of-Fees 5Y Return.",
+            extra_cols=["Sharpe (5Y)"]
+        )
+        write_fund_table(
+            hsa_candidates,
+            "🏥 HSA — Income & Dividends (Full Universe)",
+            "High-yield funds for your Health Savings Account. HSA has no plan menu constraint — full dynamic universe. Scored by Sharpe Ratio + Net-of-Fees 5Y Return.",
             extra_cols=["Sharpe (5Y)"]
         )
         write_fund_table(
@@ -498,7 +527,7 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
 
             # 5a. Current Holdings Table
             # Filter specifically for 'Employer 401k' to segregate it from HSA accounts
-            # which share the '401k / HSA' routing bucket.
+            # which were previously merged into the 'Tax-Deferred' routing bucket.
             if 'Account Type' in df.columns and 'Account' in df.columns:
                 k401_df = df[df['Account'].str.contains('401k|401K', na=False)].copy()
             else:
@@ -548,9 +577,9 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
                 cand = {
                     "ticker": ticker, "name": name, "er": er,
                     "yield": yld, "1y_return": r1, "3y_return": r3,
-                    "5y_return": r5, "routing": "401k / HSA",
+                    "5y_return": r5, "routing": "Tax-Deferred",
                 }
-                cand = score_candidate(ticker, cand, "401k / HSA")
+                cand = score_candidate(ticker, cand, "Tax-Deferred")
                 all_plan_scored.append(cand)
 
             all_plan_scored.sort(key=lambda x: x["score"], reverse=True)
@@ -615,17 +644,18 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         f.write("| Metric | Used For | What It Measures | Interpretation |\n")
         f.write("|---|---|---|---|\n")
         f.write("| **Net-of-Fees Return (5Y)** | All accounts | Annualized return after subtracting expense ratio | Higher is better. The single most important number — what you actually earned. |\n")
-        f.write("| **Sharpe Ratio** | Taxable, 401k/HSA | Return per unit of *total* volatility (risk-adjusted) | > 1.0 is good, > 2.0 is excellent. Higher means better risk-adjusted returns. |\n")
+        f.write("| **Sharpe Ratio** | Taxable, 401k, HSA | Return per unit of *total* volatility (risk-adjusted) | > 1.0 is good, > 2.0 is excellent. Higher means better risk-adjusted returns. |\n")
         f.write("| **Sortino Ratio** | Roth IRA | Return per unit of *downside* volatility | Like Sharpe but ignores upside swings. > 1.0 is good. Ideal for growth funds. |\n")
         f.write("| **Max Drawdown** | Taxable | Worst peak-to-trough decline over 5 years | A less negative number is better. -20% means the fund dropped 20% at its worst point. |\n")
-        f.write("| **Tracking Error** | Taxable, 401k/HSA | How closely a fund follows its benchmark index | Lower is better for index funds. High TE means the fund deviates from what it claims to track. |\n")
+        f.write("| **Tracking Error** | Taxable, 401k, HSA | How closely a fund follows its benchmark index | Lower is better for index funds. High TE means the fund deviates from what it claims to track. |\n")
         f.write("| **Total Return (10Y)** | Roth IRA | Cumulative total return over 10 years | Shows long-term compounding power. Marked 'Insufficient History' if fund is < 10 years old. |\n")
         f.write(f"\n*Risk-free rate used for Sharpe/Sortino: **{rf*100:.2f}%** (13-week T-Bill, fetched live)*\n")
         f.write(f"\n*Tracking Error is computed against each fund's detected benchmark (e.g., SPY for S&P 500 funds, AGG for bond funds). If no benchmark can be detected, the metric is omitted.*\n")
         f.write("\n### Per-Account Scoring Rationale\n\n")
         f.write("- **Taxable Brokerage:** Prioritizes net returns + risk consistency (Sharpe) + low tax drag (low yield). Max Drawdown penalizes volatility that could trigger panic selling.\n")
         f.write("- **Roth IRA:** Maximizes total return using Sortino (ignores upside volatility). 10Y track record validates durable compounding. This is your most valuable tax shelter — put your biggest growers here.\n")
-        f.write("- **401k / HSA:** Balances income generation with consistency (Sharpe). Tracking Error ensures index fund fidelity. Tax-deferred, so dividends compound without annual drag.\n")
+        f.write("- **Employer 401k:** Balances income generation with consistency (Sharpe). Tracking Error ensures index fund fidelity. Constrained to your employer's plan menu. Tax-deferred, so dividends compound without annual drag.\n")
+        f.write("- **HSA:** Same scoring model as 401k (Sharpe + Tracking Error), but with full dynamic universe access. Triple tax advantage — contributions, growth, and qualified withdrawals are all tax-free.\n")
 
         markdown_content = f.getvalue()
 

@@ -339,7 +339,7 @@ def get_fund_metrics(ticker: str, account_type: str) -> Dict[str, Any]:
     """
     Returns the evaluation metrics relevant to the given account type.
 
-    Account types: "Taxable Brokerage", "Roth IRA", "401k / HSA"
+    Account types: "Taxable Brokerage", "Roth IRA", "Tax-Deferred"
 
     Returns a dict with metric names as keys and computed values.
     Metrics that cannot be computed are set to None.
@@ -361,7 +361,7 @@ def get_fund_metrics(ticker: str, account_type: str) -> Dict[str, Any]:
         result["total_return_10y"] = total_10y
         result["total_return_10y_available"] = total_10y is not None
 
-    elif account_type == "401k / HSA":
+    elif account_type == "Tax-Deferred":
         result["sharpe_ratio"] = compute_sharpe_ratio(ticker, "5y")
         result["tracking_error"] = compute_tracking_error(ticker, period="5y")
 
@@ -383,7 +383,7 @@ if __name__ == "__main__":
     rf = fetch_risk_free_rate()
     print(f"Risk-Free Rate (^IRX): {rf*100:.2f}%\n")
 
-    test_tickers = {"SPY": "Taxable Brokerage", "QQQ": "Roth IRA", "SCHD": "401k / HSA"}
+    test_tickers = {"SPY": "Taxable Brokerage", "QQQ": "Roth IRA", "SCHD": "Tax-Deferred"}
 
     for ticker, acct in test_tickers.items():
         print(f"--- {ticker} ({acct}) ---")

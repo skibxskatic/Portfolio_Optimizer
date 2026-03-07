@@ -1,29 +1,30 @@
-# Fidelity Portfolio Optimizer – Product Requirements Document (PRD)
+# Portfolio Optimizer – Product Requirements Document (PRD)
 
 ## 1. Overview
-**Project Name:** Fidelity Optimizer (Antigravity IDE Automation)
-**Objective:** Build a local data processing engine to analyze exported Fidelity brokerage account data and optimize the portfolio for **long-term wealth accumulation**. The core focus is maximizing after-tax compounding through tax-efficient asset placement, low expenses, and evidence-based fund evaluation — following a "time in market over timing the market" philosophy.
+**Project Name:** Portfolio Optimizer (Antigravity IDE Automation)
+**Objective:** Build a local data processing engine to analyze exported brokerage account data and optimize the portfolio for **long-term wealth accumulation**. The core focus is maximizing after-tax compounding through tax-efficient asset placement, low expenses, and evidence-based fund evaluation — following a "time in market over timing the market" philosophy.
 
 ## 2. Target User & Use Case
-*   **User:** A retail investor with an active Fidelity brokerage and retirement account(s) holding various assets (ETFs, Mutual Funds, Index Funds).
+*   **User:** A retail investor with an active brokerage and retirement account(s) holding various assets (ETFs, Mutual Funds, Index Funds).
 *   **Scope Exclusion:** Individual equities (stocks) are **strictly excluded** from all analysis and recommendations. The engine operates exclusively on index funds, mutual funds, and exchange-traded funds (ETFs).
-*   **Use Case:** The user periodically downloads their `Positions.csv` and `History.csv` from Fidelity. They feed these files into the local Python engine to receive a comprehensive analysis of their current asset allocation, tax liabilities by lot, fee bloat, and actionable rebalancing recommendations tailored to each account type.
+*   **Use Case:** The user periodically downloads their `Positions.csv` and `History.csv` from their brokerage. They feed these files into the local Python engine to receive a comprehensive analysis of their current asset allocation, tax liabilities by lot, fee bloat, and actionable rebalancing recommendations tailored to each account type.
 
 ## 3. Core Constraints & Philosophies
 1.  **Buy-and-Hold, Long-Term Focus:** The investor follows a "time in market over timing the market" strategy. The engine does not attempt to time entries or exits. Instead, it focuses on periodic portfolio hygiene — ensuring holdings are in the right accounts, expenses are low, and tax liabilities are minimized through intelligent lot management.
 2.  **Tax Efficiency First:** Avoid realizing gains held for `< 365 days` to sidestep punitive Short-Term Capital Gains (STCG) tax brackets — with a **De Minimis Override** (see Section 4.3).
 3.  **Expense Reduction:** Flag and propose replacements for any funds where a lower-cost alternative delivers superior **net-of-fees returns** over comparable time horizons. The raw 0.40% ER threshold serves as an initial screen, but the engine must compare *net returns* before recommending a switch.
 4.  **Local & Secure:** No API calls uploading the user's raw financial data to external servers. Only anonymized ticker queries (via `yfinance` or similar) are permitted. The CSVs stay local.
-5.  **3-Bucket Tax-Optimized Asset Placement:** Maximize after-tax returns by intelligently placing assets across three distinct account types based on each account's tax treatment (see Section 4.3, Smart Asset Routing).
+5.  **4-Bucket Tax-Optimized Asset Placement:** Maximize after-tax returns by intelligently placing assets across four distinct account types based on each account's tax treatment (see Section 4.3, Smart Asset Routing).
 6.  **Fund-Only Scope:** The engine will never recommend, score, or analyze individual company equities. All candidate sourcing, scoring, and replacement logic is restricted to index funds, mutual funds, and ETFs.
 
 ## 4. Key Features & Workflows
 
 ### Phase 1: Ingestion & Parsing (Data Layer)
-*   **Fidelity CSV Parser:** A robust Pandas module designed specifically to ingest Fidelity's standard CSV structures (skipping header metadata, mapping column names). Supports automatic aggregation of multiple `Accounts_History*.csv` files.
+*   **CSV Parser:** A robust Pandas module designed to ingest standard brokerage CSV structures (skipping header metadata, mapping column names). Supports automatic aggregation of multiple `Accounts_History*.csv` files.
     *   **Data Freshness Requirement:** The parser relies on `Portfolio_Positions.csv` as the absolute source of truth for the *current* quantity of shares held today. A fresh export is required per run.
 *   **Tax Lot Unrolling:** Break down aggregate ticker holdings into individual tax lots (Purchase Date, Cost Basis, Current Value) to calculate holding periods using FIFO (First-In-First-Out) accounting. The unroller intentionally **ignores sell transactions** in the history CSVs, as applying sells manually would double-count share depletion already reflected in the current positions file.
-*   **401k PDF Parser (`401k_parser.py`):** A dedicated parser for Fidelity NetBenefits 401k statement PDFs. Extracts current holdings (fund name, ticker, shares, market value, cost basis) from the "Balance Overview" section, and dynamically discovers the entire available plan fund menu from the "Investment Choices" section. No hardcoding is required; the parser automatically identifies all available options for constraint matching. Tax lot analysis is **not applicable** to 401k accounts (tax-deferred).
+*   **401k Parser (`401k_parser.py`):** A dedicated parser for 401k statement PDFs and extracted text. Extracts current holdings (fund name, ticker, shares, market value, cost basis) from the "Balance Overview" section, and dynamically discovers the entire available plan fund menu from the "Investment Choices" section. No hardcoding is required; the parser automatically identifies all available options for constraint matching. Tax lot analysis is **not applicable** to 401k accounts (tax-deferred).
+*   **File Format Auto-Dispatcher (`file_ingestor.py`):** A 3-layer detection pipeline that auto-detects file formats (CSV, Excel, PDF, extracted text) and routes them to the correct parser. PDFs are extracted inline via `pypdf` — no separate batch file step needed.
 
 ### Phase 2: Market Intelligence Engine
 *   **Dynamic Candidate Scraper (`get_dynamic_etf_universe`):** Before scoring replacement funds, the engine fetches a live universe of 60-80 candidate ETFs and Mutual Funds directly from Yahoo Finance's screener pages (`finance.yahoo.com/etfs`, `/screener/predefined/top_mutual_funds`) using a lightweight `requests` + regex parser. If scraping fails, it falls back to a hardcoded baseline of 6 high-quality dividend funds. Individual equities returned by the scraper must be intercepted and dropped.
@@ -41,25 +42,27 @@
 *   **Expense Bloat Scanner:** Identify funds or ETFs with ERs above 0.40% as an initial screen. However, the engine must then compare **net-of-fees returns** (return after ER deduction) over 3-5 year windows before recommending a replacement. A fund charging 0.55% ER that outperforms net-of-fees is not flagged for replacement. Only funds that are both *more expensive* AND *underperforming* net-of-fees vs. available alternatives are recommended for replacement.
 *   **Net-of-Fees Comparison Methodology:** Each flagged fund is compared against the **single best available alternative within the same asset routing bucket**. This ensures apples-to-apples comparison (e.g., a small-cap value fund is compared against the best small-cap alternative, not against SPY).
 
-#### 3c. Smart Asset Routing (3-Bucket Tax Location Strategy)
-The engine must dynamically categorize both existing holdings and replacement candidates based on live `yfinance` performance metrics and route them to the most tax-efficient account type using a **three-bucket model**:
+#### 3c. Smart Asset Routing (4-Bucket Tax Location Strategy)
+The engine must dynamically categorize both existing holdings and replacement candidates based on live `yfinance` performance metrics and route them to the most tax-efficient account type using a **four-bucket model**:
 
 | Bucket | Criteria | Target Account | Rationale |
 |---|---|---|---|
 | **Maximum Growth** | Highest total return, low dividend yield (< 2.0%), high beta (> 1.0) | **Roth IRA** | All growth is permanently tax-free. The Roth is the most valuable tax shelter — put your biggest compounders here. |
-| **Income / Dividend** | High dividend yield (≥ 2.0%), steady compounding | **401k / HSA** | Tax-deferred; dividends don't create annual drag. Withdrawals taxed as ordinary income anyway, so dividend tax efficiency is irrelevant. |
+| **Income / Dividend (Plan-Constrained)** | High dividend yield (≥ 2.0%), steady compounding | **Employer 401k** | Tax-deferred; dividends don't create annual drag. Constrained to employer's plan menu. |
+| **Income / Dividend (Full Universe)** | High dividend yield (≥ 2.0%), steady compounding | **HSA** | Triple tax advantage. Same scoring model as 401k but with full dynamic universe access. |
 | **Tax-Efficient Growth** | Low distributions, moderate growth, low yield (< 2.0%), beta ≤ 1.0 | **Taxable Brokerage** | Capital appreciation without taxable events. Minimal distributions mean minimal annual tax drag. |
 
-**Account Name Mapping:** The engine maps Fidelity CSV `Account Name` values to routing buckets:
+**Account Name Mapping:** The engine maps CSV `Account Name` values to routing buckets:
 
 | CSV Account Name | Routing Bucket |
 |---|---|
 | `INDIVIDUAL` | Taxable Brokerage |
 | `Melissa Investments` | Taxable Brokerage |
 | `ROTH IRA` | Roth IRA |
-| `Health Savings Account` | 401k / HSA |
+| `Health Savings Account` | HSA |
+| `401k` (from plan parser) | Employer 401k |
 
-**401k Replacement Constraint:** For 401k accounts, replacement recommendations are **dynamically constrained to the employer's plan menu** by extracting available fund tickers from the user's Investment Options PDF text. The engine does not hardcode any employer-specific data — it works for any Fidelity NetBenefits 401k plan.
+**401k Replacement Constraint:** For 401k accounts, replacement recommendations are **dynamically constrained to the employer's plan menu** by extracting available fund tickers from the user's Investment Options PDF text. HSA accounts have **no such constraint** and receive the full dynamic universe. The engine does not hardcode any employer-specific data — it works for any 401k plan.
 
 #### 3d. Per-Account Scoring & Evaluation Metrics
 Rather than a single global scoring formula, the engine uses **account-specific scoring** that weights metrics aligned to each account's investment objective:
@@ -79,12 +82,17 @@ Rather than a single global scoring formula, the engine uses **account-specific 
 *   **Tiebreaker Metrics:**
     *   **Total Return (10Y):** The Roth has the longest horizon (untouched until retirement). The longest available track record is the best predictor of durable compounding. **If a fund has less than 10 years of price history, this metric is omitted and marked as "Insufficient History" in the report.**
 
-**401k / HSA — Objective: Income/dividends + steady compounding, tax-deferred until retirement**
+**Employer 401k — Objective: Income/dividends + steady compounding, tax-deferred until retirement**
 *   **Primary Metrics:**
     *   **Net-of-Fees Return (5Y):** Consistent returns matter for accounts generating income.
     *   **Sharpe Ratio:** Steady compounding requires consistency — high-volatility income funds erode predictability.
 *   **Tiebreaker Metrics:**
     *   **Tracking Error:** Confirms index funds are doing their job. Especially important for bond index funds commonly held in these accounts.
+
+**HSA — Objective: Same as 401k, with full investment universe and triple tax advantage**
+*   Uses the same scoring model as Employer 401k (Sharpe + Net-of-Fees + Tracking Error).
+*   HSA candidates are NOT constrained to any plan menu — they access the full dynamic universe.
+*   **Triple Tax Advantage:** Contributions are pre-tax, growth is tax-free, and qualified medical withdrawals are tax-free.
 
 **Metric Computation Details:**
 *   **Risk-Free Rate:** Sharpe and Sortino ratios require a risk-free rate benchmark. This is **fetched live** from the 13-week Treasury Bill yield (ticker `^IRX`) via `yfinance` at the start of each analysis run.
@@ -93,22 +101,23 @@ Rather than a single global scoring formula, the engine uses **account-specific 
 
 **Metric Summary:**
 
-| Metric | Individual Brokerage | Roth IRA | 401k / HSA | What It Measures |
-|---|---|---|---|---|
-| Net-of-Fees Return (5Y) | ✅ Primary | ✅ Primary | ✅ Primary | Actual return after expenses |
-| Sharpe Ratio | ✅ Primary | | ✅ Primary | Return per unit of total volatility |
-| Sortino Ratio | | ✅ Primary | | Return per unit of downside volatility |
-| Max Drawdown | ✅ Tiebreaker | | | Worst peak-to-trough decline |
-| Tracking Error | ✅ Tiebreaker | | ✅ Tiebreaker | How closely fund tracks its benchmark |
-| Total Return (10Y) | | ✅ Tiebreaker | | Longest-term compounding track record |
+| Metric | Individual Brokerage | Roth IRA | Employer 401k | HSA | What It Measures |
+|---|---|---|---|---|---|
+| Net-of-Fees Return (5Y) | ✅ Primary | ✅ Primary | ✅ Primary | ✅ Primary | Actual return after expenses |
+| Sharpe Ratio | ✅ Primary | | ✅ Primary | ✅ Primary | Return per unit of total volatility |
+| Sortino Ratio | | ✅ Primary | | | Return per unit of downside volatility |
+| Max Drawdown | ✅ Tiebreaker | | | | Worst peak-to-trough decline |
+| Tracking Error | ✅ Tiebreaker | | ✅ Tiebreaker | ✅ Tiebreaker | How closely fund tracks its benchmark |
+| Total Return (10Y) | | ✅ Tiebreaker | | | Longest-term compounding track record |
 
 ### Phase 4: Output & Reporting
 *   **Portfolio Analysis Report (`Portfolio_Analysis_Report.md` & PDF):** The engine outputs a comprehensive markdown document which is automatically converted to a styled PDF. Asset Holding Breakdowns must group assets by Account Name first, and Suggested Action second. The resulting PDF output must feature clean, styled tables (black borders, padded cells, gray header rows) and MUST be rendered in a **continuous single-page custom format** (e.g. `297x2000mm`) instead of standard discrete pages to completely eliminate page breaks that cut off tables.
     *   *Example output: "Your mutual fund XYZ charges 0.65% but only returns 7.2% net-of-fees over 5 years. FSKAX returns 9.8% net-of-fees at 0.015% ER. Switching could improve your net returns."*
     *   *Example (De Minimis): "You hold 20 shares of ABC at a $1.50 STCG gain (0.3% of lot value). This is below the 1% de minimis threshold — safe to reallocate without material tax impact."*
-    *   **Replacement Optimizer:** Dynamically recommends lower-fee ETF/Mutual Fund alternatives (no individual stocks). The engine MUST output **three** separate recommendation tables (up to 5 candidates each). The recommendation tables must visually group the primary scoring metrics (e.g., `Net 5Y Ret`, `Sharpe (5Y)`) immediately after the fund identity and before the raw `1Y Ret`/`3Y Ret`/`5Y Ret` returns, making the time horizons for each metric explicitly clear in the column headers:
+    *   **Replacement Optimizer:** Dynamically recommends lower-fee ETF/Mutual Fund alternatives (no individual stocks). The engine MUST output **four** separate recommendation tables (up to 5 candidates each). The recommendation tables must visually group the primary scoring metrics (e.g., `Net 5Y Ret`, `Sharpe (5Y)`) immediately after the fund identity and before the raw `1Y Ret`/`3Y Ret`/`5Y Ret` returns, making the time horizons for each metric explicitly clear in the column headers:
         *   **Roth IRA:** Maximum-growth funds scored by Sortino Ratio and total return.
-        *   **401k / HSA:** Income/dividend-focused funds scored by Sharpe Ratio and yield consistency. For 401k, candidates are constrained to the employer's plan fund menu.
+        *   **Employer 401k:** Income/dividend-focused funds scored by Sharpe Ratio and yield consistency. Candidates constrained to the employer's plan fund menu.
+        *   **HSA:** Income/dividend-focused funds scored by Sharpe Ratio. Full dynamic universe (unconstrained).
         *   **Taxable Brokerage:** Tax-efficient growth funds scored by Sharpe Ratio and low distribution yield.
     *   **401k Plan Analysis:** When 401k data is present, the report includes a dedicated Section 5 that quarantines 401k holdings. It generates a Plan Menu Scorecard ranking every available fund in the employer plan by the engine's 401k mathematical formula, and highlights explicit **Rebalance Opportunities** (top 5 unheld funds) and **Underperforming Holdings** (bottom half held funds).
     *   **Capital Gains Screener:** The screener MUST automatically exclude all tax-advantaged accounts (e.g., Roth IRA, 401k/HSA) since capital gains rules do not apply to them. It must only evaluate lots in Taxable Brokerage accounts and visually group the output table sorted primarily by Account Name.
@@ -129,7 +138,7 @@ Rather than a single global scoring formula, the engine uses **account-specific 
         *   VTI (broad market, low yield, low beta) → Taxable Brokerage
 
 ### Phase 6: Documentation & Onboarding
-*   **Living "How to Use" Guide:** A centralized guide (`docs/HOW_TO_USE.md`) defining exactly how to export CSVs from Fidelity, place them in the secure `Drop_Financial_Info_Here/` folder, trigger the interfaces, and run standalone validation.
+*   **Living "How to Use" Guide:** A centralized guide (`docs/HOW_TO_USE.md`) defining exactly how to export CSVs from your brokerage, place them in the secure `Drop_Financial_Info_Here/` folder, trigger the interfaces, and run standalone validation.
 *   **Continuous Maintenance Clause:** Whenever workflows, paths, or execution steps change in scripts, this documentation file **MUST be updated concurrently** to ensure it remains the single source of truth for operating the Optimizer.
 
 ## 5. Verification & Testing Strategy (Self-Improving Protocol)
@@ -158,7 +167,7 @@ To ensure the scripts are robust and data is accurate before finalization, all l
 *   **Data Processing:** `pandas`, `numpy`
 *   **Market Data:** `yfinance`
 *   **Web Scraping (Dynamic Screener):** `requests`, `re`, `lxml`
-*   **PDF Parsing (401k):** `pypdf`
+*   **PDF Parsing (401k):** `pypdf` (inline extraction via `file_ingestor.py`)
 *   **Risk Metrics:** Custom `metrics.py` module (Sharpe, Sortino, Max Drawdown, Tracking Error)
 *   **Output Presentation:** Markdown report generation.
 

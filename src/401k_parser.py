@@ -1,8 +1,9 @@
 """
-401k_parser.py — Dynamic Fidelity NetBenefits 401k Parser
+401k_parser.py — Dynamic 401k Plan Parser
 
 Dynamically extracts 401k holdings and the available plan fund menu
-from user-provided extracted PDF text files. No hardcoded employer data.
+from user-provided extracted PDF text files. Works with any employer
+plan — no hardcoded data.
 
 Tax lot analysis is NOT applicable — 401k is tax-deferred.
 """
@@ -27,10 +28,11 @@ def extract_plan_menu(text: str) -> Dict[str, str]:
 
     matches = re.findall(pattern, text)
 
-    # Common noise prefixes from PDF extraction
+    # Common noise prefixes from PDF extraction (various providers)
     noise_prefixes = ["Show", "mark", "ReturnsAs OfBench-mark", "ReturnsAs Of",
-                      "Bench-mark", "ViewChart",
-                      "Invested Balance Cost Basis YTDReturnsAs OfViewChart"]
+                      "Bench-mark", "ViewChart", "View", "Select",
+                      "Invested Balance Cost Basis YTDReturnsAs OfViewChart",
+                      "Performance", "Details", "Add to Watchlist"]
 
     plan_menu = {}
     seen_tickers = set()
@@ -85,6 +87,27 @@ def extract_current_holdings(text: str, plan_menu: Dict[str, str]) -> pd.DataFra
         )
 
         match = re.search(pattern, text, re.DOTALL)
+        if not match:
+            # Strategy B: relaxed fallback regex for varying PDF layouts
+            pattern_b = (
+                rf'{escaped_ticker}'
+                rf'.*?'
+                rf'\$([\d,]+\.?\d*)'
+            )
+            match_b = re.search(pattern_b, text, re.DOTALL)
+            if match_b:
+                balance = float(match_b.group(1).replace(',', ''))
+                holdings.append({
+                    'Symbol': ticker,
+                    'Fund Name': display_name,
+                    'Description': display_name,
+                    'Current Value': balance,
+                    'Cost Basis Total': 0.0,
+                    'Pct Invested': 0.0,
+                    'Account Name': '401k',
+                    'Account Type': 'Employer 401k',
+                })
+            continue
         if match:
             pct_invested = float(match.group(1))
             balance = float(match.group(2).replace(',', ''))
@@ -98,7 +121,7 @@ def extract_current_holdings(text: str, plan_menu: Dict[str, str]) -> pd.DataFra
                 'Cost Basis Total': cost_basis,
                 'Pct Invested': pct_invested,
                 'Account Name': '401k',
-                'Account Type': '401k / HSA',
+                'Account Type': 'Employer 401k',
             })
 
     df = pd.DataFrame(holdings)

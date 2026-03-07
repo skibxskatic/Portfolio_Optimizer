@@ -1,8 +1,8 @@
-# Fidelity Optimizer: How to Use Guide
+# Portfolio Optimizer: How to Use Guide
 
 ## 1. Export Your Data from Fidelity
 
-> **🚨 CRITICAL:** You **must always** download a fresh `Portfolio_Positions_...csv` file right before running the Optimizer. The engine relies entirely on this file for your *current* share quantities. Because Fidelity History exports are limited to 90 days and often miss older sell events, the engine intentionally ignores "Sell" transactions to prevent math errors. **If you do not provide an updated Positions file, your recent trades will not be reflected in the analysis!**
+> **🚨 CRITICAL:** You **must always** download a fresh `Portfolio_Positions_...csv` file right before running the Optimizer. The engine relies entirely on this file for your *current* share quantities. Because History exports are often limited to 90 days and may miss older sell events, the engine intentionally ignores "Sell" transactions to prevent math errors. **If you do not provide an updated Positions file, your recent trades will not be reflected in the analysis!**
 
 ### Brokerage, Roth IRA, and HSA Accounts (CSV)
 1. Log in to your Fidelity account on a desktop browser.
@@ -15,17 +15,17 @@
 7. Click the **"Download"** icon in the top right for each time period you select.
 
 ### 401k Account (PDF)
-1. Log in to **Fidelity NetBenefits** (your employer 401k portal).
+1. Log in to **your employer's 401k portal** (e.g., Fidelity NetBenefits).
 2. Navigate to **"Investments"** → your plan page.
 3. Print or PDF-save the **Investment Choices** page (this contains the full menu of funds available in your plan along with your **Balance Overview**).
 4. Place the PDF in the `Drop_Financial_Info_Here/` folder.
 
-> **Note:** The 401k parser requires a one-time text extraction step. Before running the main Optimizer, double-click **`Fidelity_401k_PDF_Extractor.bat`** to automatically read your PDF.
+> **Note:** The 401k parser requires a one-time text extraction step. Before running the main Optimizer, double-click **`Portfolio_Optimizer.bat`** or use the inline PDF extraction to automatically read your PDF.
 
 ## 2. Place Your Data in the Project
 For the privacy and security of your financial data, the downloaded files MUST be placed in the local `Drop_Financial_Info_Here/` folder. This folder is explicitly ignored by version control (Git) so your balances will never be uploaded to the cloud.
 
-1. Move your single `Portfolio_Positions_...csv` file and **ALL** of your individual `Accounts_History...csv` files into the `Drop_Financial_Info_Here/` folder located inside the `Fidelity_Optimizer` project directory you just downloaded.
+1. Move your single `Portfolio_Positions_...csv` file and **ALL** of your individual `Accounts_History...csv` files into the `Drop_Financial_Info_Here/` folder located inside the `Portfolio_Optimizer` project directory.
 
 > **Engine Feature:** The Optimizer is programmed to automatically stitch all your History files together! Just drop them all into the `Drop_Financial_Info_Here/` folder—you do not need to manually combine them.
 
@@ -35,8 +35,8 @@ The Optimizer generates a comprehensive Markdown report with all findings.
 ### Option A: The One-Click Executable (Recommended)
 Launch the Optimizer in a single click without opening a terminal or configuring execution policies:
 
-1. Open your File Explorer and navigate to the `Fidelity_Optimizer` folder you downloaded.
-2. Double-click **`Fidelity_Optimizer.bat`** (the file with the gear/window icon).
+1. Open your File Explorer and navigate to the `Portfolio_Optimizer` folder.
+2. Double-click **`Portfolio_Optimizer.bat`** (the file with the gear/window icon).
 
 Alternatively, if you are already in the IDE terminal, you can run the PowerShell script directly:
 ```bash
@@ -45,7 +45,7 @@ PowerShell -File src\run_optimizer.ps1
 
 ### Option B: Direct Python Execution
 ```bash
-cd path\to\your\downloaded\Fidelity_Optimizer\
+cd path\to\your\Portfolio_Optimizer\
 .\venv\Scripts\Activate.ps1
 py src\portfolio_analyzer.py
 ```
@@ -57,11 +57,12 @@ py src\portfolio_analyzer.py
 The report contains:
 
 1. **High-Level Metrics** — Weighted average expense ratio and live risk-free rate.
-2. **Asset Holding Breakdown** — Every position grouped by account type (Taxable, Roth IRA, 401k/HSA) with suggested actions.
+2. **Asset Holding Breakdown** — Every position grouped by account type (Taxable, Roth IRA, Employer 401k, HSA) with suggested actions.
 3. **Tax Optimization** — Tax-loss harvesting candidates, capital gains screener, and de minimis override flags.
-4. **Recommended Replacements** — Three separate tables:
+4. **Recommended Replacements** — Four separate tables:
    - 🚀 **Roth IRA** — Maximum growth funds (scored by Sortino Ratio)
-   - 💰 **401k / HSA** — Income/dividend funds (scored by Sharpe Ratio)
+   - 💼 **Employer 401k** — Income/dividend funds, plan-constrained (scored by Sharpe Ratio)
+   - 🏥 **HSA** — Income/dividend funds, full universe (scored by Sharpe Ratio)
    - 🏦 **Taxable Brokerage** — Tax-efficient growth funds (scored by Sharpe + low yield)
 5. **401k Plan Analysis** *(If 401k PDF is provided)* — Dedicated scorecard ranking every fund in your employer's plan, highlighting Rebalance Opportunities and Underperforming Holdings.
 6. **Evaluation Metrics Summary** — Explains each metric, why it's used for each account type, and how to interpret scores.
@@ -76,7 +77,7 @@ Running API Reality Checks against known benchmarks (SPY, SCHD)...
 Running Dynamic Screener QA on live targets...
 ✅ Dynamic Screener QA PASSED: Engine successfully filtered raw targets.
 Running Asset Routing QA on known benchmarks (SCHD, QQQ, VTI)...
-✅ Asset Routing QA PASSED: 3-Bucket routing logic is correct.
+✅ Asset Routing QA PASSED: 4-Bucket routing logic is correct.
 --- ALL QA PASSED, BEGINNING ENGINE RUN ---
 ```
 

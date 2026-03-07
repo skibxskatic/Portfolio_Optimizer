@@ -1,6 +1,6 @@
-# How the Fidelity Optimizer Works (A Guide for Non-Technical Users)
+# How the Portfolio Optimizer Works (A Guide for Non-Technical Users)
 
-Welcome! If you're wondering what exactly is happening behind the scenes when you double-click the `Fidelity_Optimizer.bat` file, this guide is for you. 
+Welcome! If you're wondering what exactly is happening behind the scenes when you double-click the `Portfolio_Optimizer.bat` file, this guide is for you. 
 
 We've designed this tool to act like a mathematically rigorous, entirely private, and incredibly fast financial advisor. Here is a plain-English explanation of exactly how it evaluates your portfolio.
 
@@ -18,13 +18,14 @@ Before the Optimizer gives you any advice, it runs a series of **Quality Assuran
 * It checks known, stable funds (like the S&P 500) to ensure their fees and yields look exactly like they should.
 * If Yahoo Finance is glitching and accidentally reports that a fund went up 1,000,000% today, the Optimizer will detect the impossibly broken data and instantly shut itself down rather than giving you bad advice based on a glitch.
 
-## 3. The 3-Bucket "Smart Routing" Strategy
+## 3. The 4-Bucket "Smart Routing" Strategy
 
-Not all investment accounts are taxed the same way. The Optimizer uses a **3-Bucket Strategy** to decide which funds belong in which accounts to save you the most money on taxes over your lifetime:
+Not all investment accounts are taxed the same way. The Optimizer uses a **4-Bucket Strategy** to decide which funds belong in which accounts to save you the most money on taxes over your lifetime:
 
 1. **Roth IRA (Maximum Growth):** You never pay taxes on Roth IRA withdrawals. Therefore, the Optimizer wants to put your highest-growth, most aggressive funds here. It doesn't care if the fund is volatile, as long as it makes the most money over the long term.
-2. **401k / HSA (Income & Dividends):** These accounts are "tax-deferred." You don't pay taxes on the dividends they generate each year. Therefore, the Optimizer looks for high-yield, dividend-paying funds and puts them here so you aren't dragged down by annual dividend taxes.
-3. **Taxable Brokerage (Tax-Efficient Growth):** You pay taxes on every dollar this account generates in dividends or capital gains. The Optimizer strictly looks for "tax-efficient" funds here—meaning funds that grow steadily but pay very little in dividends, minimizing your yearly tax bill.
+2. **Employer 401k (Income & Dividends — Plan-Constrained):** Your 401k is "tax-deferred" and limited to funds your employer offers. The Optimizer looks for high-yield, dividend-paying funds within your plan menu.
+3. **HSA (Income & Dividends — Full Universe):** Your HSA has a *triple* tax advantage (contributions, growth, and qualified withdrawals are all tax-free). The Optimizer uses the same income-focused scoring as 401k, but with access to the entire market — not just your employer's plan.
+4. **Taxable Brokerage (Tax-Efficient Growth):** You pay taxes on every dollar this account generates in dividends or capital gains. The Optimizer strictly looks for "tax-efficient" funds here — meaning funds that grow steadily but pay very little in dividends, minimizing your yearly tax bill.
 
 ## 4. Grading Your Current Funds
 
@@ -44,7 +45,7 @@ It scores these replacements using advanced risk mathematics:
 
 ## 6. 401k Plan Evaluation
 
-If you drop your Fidelity NetBenefits **Investment Options PDF** (after extracting the text) into the `Drop_Financial_Info_Here/` folder, the Optimizer will automatically:
+If you drop your 401k **Investment Options PDF** (after extracting the text) into the `Drop_Financial_Info_Here/` folder, the Optimizer will automatically:
 
 1. **Read your current 401k holdings** — It detects the funds you currently own, their balances, and cost basis directly from your Investment Options page.
 2. **Discover your plan menu** — It dynamically extracts *every* fund your employer offers in the plan. No hardcoding required — it works for any employer.

@@ -8,7 +8,7 @@ def generate_test_pdf():
     print("Generating mock markdown report...")
     
     with io.StringIO() as f:
-        f.write("# Fidelity Portfolio Optimization Report (TEST MODE)\n\n")
+        f.write("# Portfolio Optimization Report (TEST MODE)\n\n")
 
         # Add generation timestamp
         timestamp = pd.Timestamp.now().strftime("%B %d, %Y at %I:%M %p")
@@ -30,7 +30,8 @@ def generate_test_pdf():
             ("VTI", "INDIVIDUAL", "Taxable Brokerage", "Vanguard Total Stock Market ETF", 0.03, "Keep"),
             ("VXUS", "INDIVIDUAL", "Taxable Brokerage", "Vanguard Total Intl Stock Index", 0.08, "Keep"),
             ("QQQ", "ROTH IRA", "Roth IRA", "Invesco QQQ Trust", 0.20, "Keep"),
-            ("BND", "Health Savings Account", "401k / HSA", "Vanguard Total Bond Market ETF", 0.03, "Keep"),
+            ("BND", "Health Savings Account", "HSA", "Vanguard Total Bond Market ETF", 0.03, "Keep"),
+            ("FXAIX", "401k", "Employer 401k", "Fidelity 500 Index Fund", 0.015, "Keep"),
             ("EXPENSIVE", "INDIVIDUAL", "Taxable Brokerage", "High Fee Mutual Fund", 0.85, "**Evaluate** (ER 0.85%, Net 5Y: 6.5%)")
         ]
         
@@ -70,8 +71,13 @@ def generate_test_pdf():
             ["Sortino (5Y)", "10Y Ret"]
         )
         write_mock_table(
-            "💰 401k / HSA — Income & Dividends",
-            "Scored by Sharpe Ratio + Net-of-Fees 5Y Return.",
+            "💼 Employer 401k — Income & Dividends (Plan-Constrained)",
+            "High-yield funds for your employer 401k. Constrained to your plan menu. Scored by Sharpe Ratio + Net-of-Fees 5Y Return.",
+            ["Sharpe (5Y)"]
+        )
+        write_mock_table(
+            "🏥 HSA — Income & Dividends (Full Universe)",
+            "High-yield funds for your Health Savings Account. HSA has no plan menu constraint — full dynamic universe. Scored by Sharpe Ratio + Net-of-Fees 5Y Return.",
             ["Sharpe (5Y)"]
         )
         write_mock_table(
