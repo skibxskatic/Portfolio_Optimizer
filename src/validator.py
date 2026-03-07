@@ -239,14 +239,14 @@ if __name__ == "__main__":
     routing_ok = verify_asset_routing_logic()
     metrics_ok = verify_metrics_computation()
     
-    data_dir = Path("data")
+    data_dir = Path("Drop_Financial_Info_Here")
     positions_files = list(data_dir.glob("Portfolio_Positions*.csv"))
     if not positions_files:
         print("⚠️ No Positions CSV found to validate.")
         ingest_ok = True
     elif len(positions_files) > 1:
         print(f"❌ Ingestion Checksum FAILED: Found {len(positions_files)} 'Portfolio_Positions' CSVs.")
-        print("Please keep exactly ONE positions file in the data/ folder.")
+        print("Please keep exactly ONE positions file in the Drop_Financial_Info_Here/ folder.")
         ingest_ok = False
     else:
         df = parser.load_fidelity_positions(positions_files[0])

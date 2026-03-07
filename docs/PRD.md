@@ -23,7 +23,7 @@
 *   **Fidelity CSV Parser:** A robust Pandas module designed specifically to ingest Fidelity's standard CSV structures (skipping header metadata, mapping column names). Supports automatic aggregation of multiple `Accounts_History*.csv` files.
     *   **Data Freshness Requirement:** The parser relies on `Portfolio_Positions.csv` as the absolute source of truth for the *current* quantity of shares held today. A fresh export is required per run.
 *   **Tax Lot Unrolling:** Break down aggregate ticker holdings into individual tax lots (Purchase Date, Cost Basis, Current Value) to calculate holding periods using FIFO (First-In-First-Out) accounting. The unroller intentionally **ignores sell transactions** in the history CSVs, as applying sells manually would double-count share depletion already reflected in the current positions file.
-*   **401k PDF Parser (`401k_parser.py`):** A dedicated parser for Fidelity NetBenefits 401k statement PDFs. Extracts current holdings (fund name, ticker, shares, market value, cost basis) from the statement PDF using text extraction (`pypdf`). A hardcoded fund name → ticker mapping is derived from the employer's Investment Options PDF. Tax lot analysis is **not applicable** to 401k accounts (tax-deferred).
+*   **401k PDF Parser (`401k_parser.py`):** A dedicated parser for Fidelity NetBenefits 401k statement PDFs. Extracts current holdings (fund name, ticker, shares, market value, cost basis) from the "Balance Overview" section, and dynamically discovers the entire available plan fund menu from the "Investment Choices" section. No hardcoding is required; the parser automatically identifies all available options for constraint matching. Tax lot analysis is **not applicable** to 401k accounts (tax-deferred).
 
 ### Phase 2: Market Intelligence Engine
 *   **Dynamic Candidate Scraper (`get_dynamic_etf_universe`):** Before scoring replacement funds, the engine fetches a live universe of 60-80 candidate ETFs and Mutual Funds directly from Yahoo Finance's screener pages (`finance.yahoo.com/etfs`, `/screener/predefined/top_mutual_funds`) using a lightweight `requests` + regex parser. If scraping fails, it falls back to a hardcoded baseline of 6 high-quality dividend funds. Individual equities returned by the scraper must be intercepted and dropped.
@@ -59,7 +59,7 @@ The engine must dynamically categorize both existing holdings and replacement ca
 | `ROTH IRA` | Roth IRA |
 | `Health Savings Account` | 401k / HSA |
 
-**401k Replacement Constraint:** For 401k accounts, replacement recommendations are **constrained to the employer's plan menu** (44 funds in the Imprivata Inc. 401(k) Plan). The engine cannot recommend funds outside this menu. The plan fund list is maintained as a hardcoded constant derived from the Investment Options PDF.
+**401k Replacement Constraint:** For 401k accounts, replacement recommendations are **dynamically constrained to the employer's plan menu** by extracting available fund tickers from the user's Investment Options PDF text. The engine does not hardcode any employer-specific data — it works for any Fidelity NetBenefits 401k plan.
 
 #### 3d. Per-Account Scoring & Evaluation Metrics
 Rather than a single global scoring formula, the engine uses **account-specific scoring** that weights metrics aligned to each account's investment objective:
@@ -103,16 +103,16 @@ Rather than a single global scoring formula, the engine uses **account-specific 
 | Total Return (10Y) | | ✅ Tiebreaker | | Longest-term compounding track record |
 
 ### Phase 4: Output & Reporting
-*   **Portfolio Analysis Report (`Portfolio_Analysis_Report.md`):** The engine's sole output interface is a comprehensive markdown document. Asset Holding Breakdowns must group assets by Account Name first, and Suggested Action second.
+*   **Portfolio Analysis Report (`Portfolio_Analysis_Report.md` & PDF):** The engine outputs a comprehensive markdown document which is automatically converted to a styled PDF. Asset Holding Breakdowns must group assets by Account Name first, and Suggested Action second. The resulting PDF output must feature clean, styled tables (black borders, padded cells, gray header rows) and MUST be rendered in a **continuous single-page custom format** (e.g. `297x2000mm`) instead of standard discrete pages to completely eliminate page breaks that cut off tables.
     *   *Example output: "Your mutual fund XYZ charges 0.65% but only returns 7.2% net-of-fees over 5 years. FSKAX returns 9.8% net-of-fees at 0.015% ER. Switching could improve your net returns."*
     *   *Example (De Minimis): "You hold 20 shares of ABC at a $1.50 STCG gain (0.3% of lot value). This is below the 1% de minimis threshold — safe to reallocate without material tax impact."*
     *   **Replacement Optimizer:** Dynamically recommends lower-fee ETF/Mutual Fund alternatives (no individual stocks). The engine MUST output **three** separate recommendation tables (up to 5 candidates each). The recommendation tables must visually group the primary scoring metrics (e.g., `Net 5Y Ret`, `Sharpe (5Y)`) immediately after the fund identity and before the raw `1Y Ret`/`3Y Ret`/`5Y Ret` returns, making the time horizons for each metric explicitly clear in the column headers:
         *   **Roth IRA:** Maximum-growth funds scored by Sortino Ratio and total return.
         *   **401k / HSA:** Income/dividend-focused funds scored by Sharpe Ratio and yield consistency. For 401k, candidates are constrained to the employer's plan fund menu.
         *   **Taxable Brokerage:** Tax-efficient growth funds scored by Sharpe Ratio and low distribution yield.
-    *   **401k Holdings Summary:** When 401k data is present, the report includes a dedicated section evaluating each 401k fund against the plan's available alternatives using the same metrics pipeline.
+    *   **401k Plan Analysis:** When 401k data is present, the report includes a dedicated Section 5 that quarantines 401k holdings. It generates a Plan Menu Scorecard ranking every available fund in the employer plan by the engine's 401k mathematical formula, and highlights explicit **Rebalance Opportunities** (top 5 unheld funds) and **Underperforming Holdings** (bottom half held funds).
     *   **Capital Gains Screener:** The screener MUST automatically exclude all tax-advantaged accounts (e.g., Roth IRA, 401k/HSA) since capital gains rules do not apply to them. It must only evaluate lots in Taxable Brokerage accounts and visually group the output table sorted primarily by Account Name.
-    *   **Evaluation Metrics Summary:** The report MUST include a dedicated section explaining:
+    *   **Evaluation Metrics Summary:** The report MUST include a dedicated Section 6 explaining:
         *   Each evaluation metric used (Net-of-Fees Return, Sharpe Ratio, Sortino Ratio, Max Drawdown, Tracking Error, Total Return 10Y).
         *   Why each metric was selected for its respective account type.
         *   How to interpret the scores (e.g., "A Sharpe Ratio above 1.0 is considered good; above 2.0 is excellent").
@@ -129,7 +129,7 @@ Rather than a single global scoring formula, the engine uses **account-specific 
         *   VTI (broad market, low yield, low beta) → Taxable Brokerage
 
 ### Phase 6: Documentation & Onboarding
-*   **Living "How to Use" Guide:** A centralized guide (`docs/HOW_TO_USE.md`) defining exactly how to export CSVs from Fidelity, place them in the secure `data/` folder, trigger the interfaces, and run standalone validation.
+*   **Living "How to Use" Guide:** A centralized guide (`docs/HOW_TO_USE.md`) defining exactly how to export CSVs from Fidelity, place them in the secure `Drop_Financial_Info_Here/` folder, trigger the interfaces, and run standalone validation.
 *   **Continuous Maintenance Clause:** Whenever workflows, paths, or execution steps change in scripts, this documentation file **MUST be updated concurrently** to ensure it remains the single source of truth for operating the Optimizer.
 
 ## 5. Verification & Testing Strategy (Self-Improving Protocol)
@@ -146,7 +146,7 @@ To ensure the scripts are robust and data is accurate before finalization, all l
 *   **Data Integrity Check:** Any candidate fund returning perfectly `0.0%` for its 1-Year, 3-Year, and 5-Year historical returns must be rejected as corrupted API data, preventing empty tickers from polluting the final recommendations.
 
 ### 3. Logic Verification (Ruleset)
-*   Create a mock `Test_Positions.csv` in `test_data/` containing artificial edge cases:
+*   Create a mock `Test_Positions.csv` in `src/test_data/` containing artificial edge cases:
     * Lots held exactly 364 days vs 366 days (STCG vs LTCG boundary).
     * Lots with unrealized gains below the 1% de minimis threshold (must trigger "safe to reallocate").
     * Funds with known expense ratios of 0.65% (must trigger replacement evaluation via net-of-fees comparison).
@@ -166,4 +166,4 @@ To ensure the scripts are robust and data is accurate before finalization, all l
 *   Backtesting engine (using `scipy.optimize` to plot the Efficient Frontier and optimize the portfolio's Sharpe ratio using trailing windows appropriate to each account's time horizon).
 *   Wash-sale safety period tracker (30-day countdown timers for harvested lots).
 *   ER vs. Performance diagnostic tool (`er_performance_analyzer.py`) — quantitatively validates the 0.40% ER screening threshold by measuring net return trade-offs.
-*   Automated 401k PDF re-ingestion — detect when new statement PDFs are added to `data/` and re-parse automatically instead of requiring manual re-extraction.
+*   Automated 401k PDF re-ingestion — detect when new statement PDFs are added to `Drop_Financial_Info_Here/` and re-parse automatically instead of requiring manual re-extraction.

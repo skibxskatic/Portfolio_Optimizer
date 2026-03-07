@@ -1,16 +1,16 @@
 @echo off
-title Fidelity Portfolio Optimizer
-color 0B
+title Fidelity 401k PDF Extractor
+color 0D
 
 echo ====================================================
-echo      Fidelity Portfolio Optimizer Engine
+echo      Fidelity 401k PDF Text Extractor
 echo ====================================================
 echo.
 echo Initializing environment...
 cd /d "%~dp0"
 
 :: Run the PowerShell script and bypass execution policies automatically
-PowerShell.exe -NoProfile -ExecutionPolicy Bypass -File src\run_optimizer.ps1
+PowerShell.exe -NoProfile -ExecutionPolicy Bypass -File src\run_pdf_extractor.ps1
 
 echo.
 echo Execution complete. This window will close automatically in 5 minutes.

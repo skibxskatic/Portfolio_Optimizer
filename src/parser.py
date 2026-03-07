@@ -166,7 +166,7 @@ def unroll_tax_lots(positions_df: pd.DataFrame, history_df: pd.DataFrame) -> pd.
     
 if __name__ == "__main__":
     # Test script to verify parsing
-    data_dir = Path("data")
+    data_dir = Path("Drop_Financial_Info_Here")
     positions_file = list(data_dir.glob("Portfolio_Positions*.csv"))
     history_file = list(data_dir.glob("Accounts_History*.csv"))
 

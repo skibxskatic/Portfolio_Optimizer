@@ -6,6 +6,8 @@ import metrics
 import pandas as pd
 from pathlib import Path
 import validator
+import importlib
+k401_parser = importlib.import_module('401k_parser')
 from markdown_pdf import Section, MarkdownPdf
 
 # --- Configuration Constants ---
@@ -90,25 +92,22 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         print("Aborting portfolio analysis to protect report integrity.")
         return
     print("--- ALL QA PASSED, BEGINNING ENGINE RUN ---\n")
-    print("⚠️  CRITICAL REMINDER: Ensure your Portfolio_Positions CSV is freshly exported.")
-    print("    The engine relies entirely on this file for current share quantities and")
-    print("    intentionally ignores 'Sell' transactions in history exports to prevent math errors.\n")
 
     # Fetch live risk-free rate once at the start
     rf = metrics.fetch_risk_free_rate()
     print(f"Live Risk-Free Rate (^IRX): {rf*100:.2f}%")
 
-    data_dir = Path("data")
+    data_dir = Path("Drop_Financial_Info_Here")
 
     if positions_path is None:
         positions_files = list(data_dir.glob("Portfolio_Positions*.csv"))
         if not positions_files:
-            print("No Positions CSV found in data/")
+            print("No Positions CSV found in Drop_Financial_Info_Here/")
             return
         if len(positions_files) > 1:
-            print(f"❌ ERROR: Found {len(positions_files)} 'Portfolio_Positions' CSVs in data/.")
+            print(f"❌ ERROR: Found {len(positions_files)} 'Portfolio_Positions' CSVs in Drop_Financial_Info_Here/.")
             print("To guarantee data freshness, the engine requires exactly ONE positions file to serve as the single source of truth.")
-            print("Please delete the older exports from the data/ folder.")
+            print("Please delete the older exports from the Drop_Financial_Info_Here/ folder.")
             return
 
         positions_path = positions_files[0]
@@ -119,7 +118,7 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
     if history_path is None:
         history_files = list(data_dir.glob("Accounts_History*.csv"))
         if not history_files:
-            print("No History CSV found in data/")
+            print("No History CSV found in Drop_Financial_Info_Here/")
             return
 
         print(f"Loading {len(history_files)} Accounts_History CSV(s) locally...")
@@ -128,6 +127,33 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
     else:
         print(f"Loading {history_path.name} locally...")
         hist_df = parser.load_fidelity_history(history_path)
+
+    # --- 401k Auto-Detection ---
+    plan_menu_tickers = []
+    k401_options_file = k401_parser.find_401k_options_file(data_dir)
+    if k401_options_file is None:
+        # Also check parent directories (workspace root may have extracted text)
+        for parent in [data_dir.parent, data_dir.parent.parent, data_dir.parent.parent.parent]:
+            k401_options_file = k401_parser.find_401k_options_file(parent)
+            if k401_options_file:
+                break
+
+    if k401_options_file:
+        print(f"\n📋 401k Investment Options detected: {k401_options_file.name}")
+        k401_holdings_df, plan_menu_tickers = k401_parser.parse_401k_options_file(k401_options_file)
+
+        if not k401_holdings_df.empty:
+            # Merge 401k holdings into the main DataFrame
+            # Align columns: 401k parser returns Symbol, Fund Name, Current Value, Cost Basis Total, Account Name, Account Type
+            k401_holdings_df['Description'] = k401_holdings_df['Fund Name']
+            k401_holdings_df['Quantity'] = 0  # Not available from Investment Options PDF
+            k401_holdings_df['Expense Ratio'] = 0.0  # Will be fetched from yfinance below
+            k401_holdings_df['Last Price'] = 0.0
+            df = pd.concat([df, k401_holdings_df], ignore_index=True)
+            print(f"   Merged {len(k401_holdings_df)} 401k holdings into the main portfolio.")
+    else:
+        print("\nℹ️  No 401k Investment Options text found. 401k analysis will be skipped.")
+        print("   To include 401k: run the PDF text extractor on your Investment Options PDF.")
 
     print("Unrolling tax lots to perform LTCG/STCG and Tax-Loss Harvesting analysis...")
     lots_df = parser.unroll_tax_lots(df, hist_df)
@@ -158,8 +184,18 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
     portfolio_weighted_er = df['Weighted_ER'].sum()
 
     # 3. Write analysis to a local Markdown file
+    cache_dir = data_dir / ".cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    
     if report_path is None:
-        report_path = data_dir / "Portfolio_Analysis_Report.md"
+        report_path = cache_dir / "Portfolio_Analysis_Report.md"
+
+    # CSS for table borders in the PDF output
+    table_css = (
+        "table { border-collapse: collapse; width: 100%; margin-bottom: 20px; font-size: 10px; table-layout: auto; }\n"
+        "th, td { border: 1px solid #000; padding: 4px 6px; text-align: left; word-wrap: break-word; }\n"
+        "th { background-color: #f2f2f2; font-weight: bold; }\n"
+    )
 
     with io.StringIO() as f:
         f.write("# Fidelity Portfolio Optimization Report\n\n")
@@ -299,6 +335,12 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
 
         print("Fetching a dynamic universe of replacement candidates from live market data...")
         candidate_tickers = market_data.get_dynamic_etf_universe()
+        
+        # Ensure that ALL funds offered in the 401k plan are included in the evaluation
+        if plan_menu_tickers:
+            candidate_tickers.extend(plan_menu_tickers)
+            candidate_tickers = list(set(candidate_tickers))
+            
         print(f"Discovered {len(candidate_tickers)} candidates. Fetching full historical metadata...")
         candidate_data = market_data.fetch_ticker_metadata(candidate_tickers)
 
@@ -308,9 +350,11 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         taxable_candidates = []
 
         for ticker, data in candidate_data.items():
-            # STRICT QA: Must be an ETF or Mutual Fund
+            is_plan_menu = bool(plan_menu_tickers and ticker in plan_menu_tickers)
+            
+            # STRICT QA: Must be an ETF or Mutual Fund (exempt 401k plan funds)
             quote_type = data.get("type", "").upper()
-            if quote_type not in ["ETF", "MUTUALFUND"]:
+            if not is_plan_menu and quote_type not in ["ETF", "MUTUALFUND"]:
                 continue
 
             er = data.get("expense_ratio_pct", 100.0)
@@ -319,12 +363,12 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
             ret_3y = data.get("3y_return", 0.0) or 0.0
             ret_5y = data.get("5y_return", 0.0) or 0.0
 
-            # Reject corrupted data
-            if ret_1y == 0.0 and ret_3y == 0.0 and ret_5y == 0.0 and yld == 0.0:
+            # Reject corrupted data (exempt 401k plan funds)
+            if not is_plan_menu and ret_1y == 0.0 and ret_3y == 0.0 and ret_5y == 0.0 and yld == 0.0:
                 continue
 
-            # ER filter
-            if er > 0.40:
+            # ER filter (exempt 401k plan funds since users have no other choice)
+            if not is_plan_menu and er > 0.40:
                 continue
 
             beta = data.get("beta", 1.0)
@@ -354,6 +398,17 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         roth_candidates.sort(key=lambda x: x["score"], reverse=True)
         k401_hsa_candidates.sort(key=lambda x: x["score"], reverse=True)
         taxable_candidates.sort(key=lambda x: x["score"], reverse=True)
+
+        # --- 401k Plan Menu Constraint ---
+        # If a 401k plan menu was detected, filter the 401k/HSA replacement candidates
+        # to ONLY include funds available in the employer's plan.
+        if plan_menu_tickers:
+            plan_constrained = [c for c in k401_hsa_candidates if c["ticker"] in plan_menu_tickers]
+            if plan_constrained:
+                k401_hsa_candidates = plan_constrained
+                print(f"   401k replacement candidates constrained to {len(plan_constrained)} funds from your employer's plan menu.")
+            else:
+                print("   ⚠️ No plan menu funds matched the dynamic candidate universe. Showing unconstrained results.")
 
         def write_fund_table(funds, title, description, extra_cols=None):
             f.write(f"### {title}\n")
@@ -436,8 +491,126 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
             extra_cols=["Sharpe (5Y)", "Max DD (5Y)"]
         )
 
-        # --- Section 5: Evaluation Metrics Summary ---
-        f.write("## 5. Evaluation Metrics Summary\n\n")
+        # --- Section 5: 401k Plan Analysis ---
+        if plan_menu_tickers and k401_options_file:
+            print("Generating dedicated 401k Plan Analysis section...")
+            f.write("\n## 5. 401k Plan Analysis\n\n")
+
+            # 5a. Current Holdings Table
+            # Filter specifically for 'Employer 401k' to segregate it from HSA accounts
+            # which share the '401k / HSA' routing bucket.
+            if 'Account Type' in df.columns and 'Account' in df.columns:
+                k401_df = df[df['Account'].str.contains('401k|401K', na=False)].copy()
+            else:
+                k401_df = pd.DataFrame()
+
+            if not k401_df.empty:
+                total_401k = k401_df['Current Value'].sum()
+                f.write(f"### Your Current 401k Holdings\n\n")
+
+                f.write("| Ticker | Fund Name | Balance | Weight | ER | 1Y Return | 3Y Return | 5Y Return |\n")
+                f.write("|---|---|---|---|---|---|---|---|\n")
+                for _, row in k401_df.iterrows():
+                    sym = row.get('Symbol', '')
+                    md = candidate_data.get(sym, {})
+                    r1 = md.get('1y_return')
+                    r3 = md.get('3y_return')
+                    r5 = md.get('5y_return')
+                    er = md.get('expense_ratio_pct', row.get('Expense Ratio', 0.0))
+                    val = row.get('Current Value', 0)
+                    pct = (val / total_401k * 100) if total_401k > 0 else 0
+                    r1s = f"{r1*100:+.2f}%" if r1 else "N/A"
+                    r3s = f"{r3*100:+.2f}%" if r3 else "N/A"
+                    r5s = f"{r5*100:+.2f}%" if r5 else "N/A"
+                    f.write(f"| **{sym}** | {row.get('Description', sym)} | ${val:,.2f} | {pct:.1f}% | `{er:.2f}%` | {r1s} | {r3s} | {r5s} |\n")
+
+                f.write(f"\n**Total 401k Value:** ${total_401k:,.2f}\n\n")
+
+            # 5b. Full Plan Menu Scorecard — rank every fund in the plan
+            f.write("### Plan Menu Scorecard — All Available Funds Ranked\n")
+            f.write("Every fund your employer offers, scored by the engine's 401k optimization formula (Sharpe Ratio + Net-of-Fees Return + Tracking Error). ")
+            f.write("Funds you currently hold are marked with ✅.\n\n")
+
+            held_tickers = set(k401_df['Symbol'].tolist()) if not k401_df.empty else set()
+
+            # Score all plan menu funds using the 401k scoring formula
+            all_plan_scored = []
+            for ticker in plan_menu_tickers:
+                md = candidate_data.get(ticker, {})
+                if not md:
+                    continue
+                er = md.get('expense_ratio_pct', 0.0)
+                yld = md.get('yield', 0.0) or 0.0
+                r1 = md.get('1y_return', 0.0) or 0.0
+                r3 = md.get('3y_return', 0.0) or 0.0
+                r5 = md.get('5y_return', 0.0) or 0.0
+                name = md.get('name', ticker)
+                cand = {
+                    "ticker": ticker, "name": name, "er": er,
+                    "yield": yld, "1y_return": r1, "3y_return": r3,
+                    "5y_return": r5, "routing": "401k / HSA",
+                }
+                cand = score_candidate(ticker, cand, "401k / HSA")
+                all_plan_scored.append(cand)
+
+            all_plan_scored.sort(key=lambda x: x["score"], reverse=True)
+
+            f.write("| Rank | Held | Ticker | Fund Name | Score | ER | Sharpe | 1Y | 3Y | 5Y |\n")
+            f.write("|---|---|---|---|---|---|---|---|---|---|\n")
+
+            for i, c in enumerate(all_plan_scored, 1):
+                held = "✅" if c["ticker"] in held_tickers else "—"
+                sharpe = c.get("sharpe_ratio")
+                sharpe_s = f"{sharpe:.3f}" if sharpe else "N/A"
+                r1 = f"{c['1y_return']*100:+.2f}%"
+                r3 = f"{c['3y_return']*100:+.2f}%"
+                r5 = f"{c['5y_return']*100:+.2f}%"
+                f.write(f"| {i} | {held} | **{c['ticker']}** | {c['name']} | {c['score']:.1f} | `{c['er']:.2f}%` | {sharpe_s} | {r1} | {r3} | {r5} |\n")
+
+            f.write("\n")
+
+            # 5c. Rebalance Opportunities
+            top_not_held = [c for c in all_plan_scored if c["ticker"] not in held_tickers][:5]
+            if top_not_held:
+                f.write("### 🔄 Rebalance Opportunities\n")
+                f.write("These are the **highest-scoring funds in your plan that you don't currently hold**. ")
+                f.write("Consider reallocating some of your 401k contribution elections toward these funds.\n\n")
+
+                f.write("| Ticker | Fund Name | Score | ER | Sharpe | Why Consider |\n")
+                f.write("|---|---|---|---|---|---|\n")
+                for c in top_not_held:
+                    sharpe = c.get("sharpe_ratio")
+                    sharpe_s = f"{sharpe:.3f}" if sharpe else "N/A"
+                    nof = c.get("net_of_fees_5y", 0)
+                    reason = []
+                    if c.get("er", 1.0) < 0.10:
+                        reason.append("Ultra-low fees")
+                    if sharpe and sharpe > 1.0:
+                        reason.append(f"Strong Sharpe ({sharpe:.2f})")
+                    if nof and nof > 0.10:
+                        reason.append(f"High net return ({nof*100:.1f}%)")
+                    if c.get("1y_return", 0) > 0.15:
+                        reason.append("Hot 1Y momentum")
+                    reason_text = "; ".join(reason) if reason else "Diversification opportunity"
+                    f.write(f"| **{c['ticker']}** | {c['name']} | {c['score']:.1f} | `{c['er']:.2f}%` | {sharpe_s} | {reason_text} |\n")
+                f.write("\n")
+
+            # 5d. Weakest holdings check
+            if not k401_df.empty and len(all_plan_scored) > 5:
+                worst_held = [c for c in reversed(all_plan_scored) if c["ticker"] in held_tickers][:3]
+                if worst_held and worst_held[0]["score"] < all_plan_scored[len(all_plan_scored) // 2]["score"]:
+                    f.write("### ⚠️ Underperforming Holdings\n")
+                    f.write("These funds you currently hold rank in the **bottom half** of your plan menu. Consider reducing allocation.\n\n")
+                    f.write("| Ticker | Fund Name | Plan Rank | Score | ER | 1Y | Suggestion |\n")
+                    f.write("|---|---|---|---|---|---|---|\n")
+                    for c in worst_held:
+                        rank = next((i for i, x in enumerate(all_plan_scored, 1) if x["ticker"] == c["ticker"]), "?")
+                        r1 = f"{c['1y_return']*100:+.2f}%"
+                        f.write(f"| **{c['ticker']}** | {c['name']} | #{rank} of {len(all_plan_scored)} | {c['score']:.1f} | `{c['er']:.2f}%` | {r1} | Reduce allocation |\n")
+                    f.write("\n")
+
+        # --- Section 6: Evaluation Metrics Summary ---
+        f.write("## 6. Evaluation Metrics Summary\n\n")
         f.write("### How Each Metric is Used\n\n")
         f.write("| Metric | Used For | What It Measures | Interpretation |\n")
         f.write("|---|---|---|---|\n")
@@ -456,17 +629,20 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
 
         markdown_content = f.getvalue()
 
-    # 4. Save exact markdown to data/ cache
+    # 4. Save exact markdown to Drop_Financial_Info_Here/ cache
     with open(report_path, "w", encoding="utf-8") as md_file:
         md_file.write(markdown_content)
 
     # 5. Convert to PDF and auto-open (Non-Tech Friendly Pattern)
     timestamp_file = pd.Timestamp.now().strftime("%b-%d-%Y_%H-%M-%S")
-    pdf_path = Path.cwd() / f"Portfolio_Analysis_Report_{timestamp_file}.pdf"
+    pdf_path = cache_dir / f"Portfolio_Analysis_Report_{timestamp_file}.pdf"
     
     print("Converting report to PDF...")
     pdf = MarkdownPdf(toc_level=2)
-    pdf.add_section(Section(markdown_content))
+    # Estimate height based on line count to completely avoid massive blank spaces at the bottom
+    # Assuming ~6.5mm height per text line + 50mm padding, enforcing a minimum of 210mm (A4 Landscape)
+    estimated_height = max(210, 50 + markdown_content.count('\n') * 6.5)
+    pdf.add_section(Section(markdown_content, paper_size=(297, estimated_height)), user_css=table_css)
     pdf.save(str(pdf_path))
 
     print(f"\n✅ Privacy-safe PDF report successfully generated at: {pdf_path.absolute()}")

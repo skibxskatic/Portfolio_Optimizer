@@ -17,18 +17,17 @@
 ### 401k Account (PDF)
 1. Log in to **Fidelity NetBenefits** (your employer 401k portal).
 2. Navigate to **"Investments"** → your plan page.
-3. Print or PDF-save the **Balance Overview** page (this contains your current holdings with tickers, shares, and market values).
-4. Also print or PDF-save the **Investment Choices** page (this contains the full menu of funds available in your plan).
-5. Place both PDFs in the `data/` folder.
+3. Print or PDF-save the **Investment Choices** page (this contains the full menu of funds available in your plan along with your **Balance Overview**).
+4. Place the PDF in the `Drop_Financial_Info_Here/` folder.
 
-> **Note:** The 401k parser requires a one-time PDF text extraction step. Run: `py .agent/skills/pdf_extraction/scripts/extract_text.py "data/your_401k_file.pdf"` for each PDF.
+> **Note:** The 401k parser requires a one-time text extraction step. Before running the main Optimizer, double-click **`Fidelity_401k_PDF_Extractor.bat`** to automatically read your PDF.
 
 ## 2. Place Your Data in the Project
-For the privacy and security of your financial data, the downloaded files MUST be placed in the local `data/` folder. This folder is explicitly ignored by version control (Git) so your balances will never be uploaded to the cloud.
+For the privacy and security of your financial data, the downloaded files MUST be placed in the local `Drop_Financial_Info_Here/` folder. This folder is explicitly ignored by version control (Git) so your balances will never be uploaded to the cloud.
 
-1. Move your single `Portfolio_Positions_...csv` file and **ALL** of your individual `Accounts_History...csv` files into the `data/` folder located inside the `Fidelity_Optimizer` project directory you just downloaded.
+1. Move your single `Portfolio_Positions_...csv` file and **ALL** of your individual `Accounts_History...csv` files into the `Drop_Financial_Info_Here/` folder located inside the `Fidelity_Optimizer` project directory you just downloaded.
 
-> **Engine Feature:** The Optimizer is programmed to automatically stitch all your History files together! Just drop them all into the `data/` folder—you do not need to manually combine them.
+> **Engine Feature:** The Optimizer is programmed to automatically stitch all your History files together! Just drop them all into the `Drop_Financial_Info_Here/` folder—you do not need to manually combine them.
 
 ## 3. Run the Optimizer
 The Optimizer generates a comprehensive Markdown report with all findings.
@@ -41,17 +40,17 @@ Launch the Optimizer in a single click without opening a terminal or configuring
 
 Alternatively, if you are already in the IDE terminal, you can run the PowerShell script directly:
 ```bash
-.\run_optimizer.ps1
+PowerShell -File src\run_optimizer.ps1
 ```
 
 ### Option B: Direct Python Execution
 ```bash
 cd path\to\your\downloaded\Fidelity_Optimizer\
 .\venv\Scripts\Activate.ps1
-python portfolio_analyzer.py
+py src\portfolio_analyzer.py
 ```
 
-🎉 **That's it!** The engine will automatically generate a timestamped `.pdf` version of your report and instantly pop it open on your screen so you can immediately review your insights. A permanent copy is saved in your project folder.
+🎉 **That's it!** The engine will automatically generate a timestamped, styled `.pdf` version of your report. This report is formatted as a **single, continuous scrolling page** (with cleanly formatted tables) to eliminate page breaks entirely. It will instantly pop open on your screen so you can immediately review your insights. A permanent copy is saved in the `Drop_Financial_Info_Here/.cache/` folder.
 
 ## 4. Understanding the Output Report
 
@@ -64,7 +63,8 @@ The report contains:
    - 🚀 **Roth IRA** — Maximum growth funds (scored by Sortino Ratio)
    - 💰 **401k / HSA** — Income/dividend funds (scored by Sharpe Ratio)
    - 🏦 **Taxable Brokerage** — Tax-efficient growth funds (scored by Sharpe + low yield)
-5. **Evaluation Metrics Summary** — Explains each metric, why it's used for each account type, and how to interpret scores.
+5. **401k Plan Analysis** *(If 401k PDF is provided)* — Dedicated scorecard ranking every fund in your employer's plan, highlighting Rebalance Opportunities and Underperforming Holdings.
+6. **Evaluation Metrics Summary** — Explains each metric, why it's used for each account type, and how to interpret scores.
 
 ## 5. Understanding the Pre-Flight QA Checks
 Every time you run `portfolio_analyzer.py`, the engine **automatically runs Quality Assurance checks** before processing your data:
@@ -90,7 +90,7 @@ The checks that run automatically:
 
 ### Running the Validator Standalone
 ```bash
-py validator.py
+py src\validator.py
 ```
 This also runs the **Metrics Computation QA** check (Sharpe/Sortino/MaxDD sanity on SPY).
 
@@ -98,13 +98,13 @@ This also runs the **Metrics Computation QA** check (Sharpe/Sortino/MaxDD sanity
 
 *   **`er_performance_analyzer.py`** — Analyzes Expense Ratio vs. performance trade-offs:
     ```bash
-    py er_performance_analyzer.py
+    py src\er_performance_analyzer.py
     ```
 *   **`metrics.py`** — Standalone smoke test for the risk-adjusted metrics engine:
     ```bash
-    py metrics.py
+    py src\metrics.py
     ```
 *   **`401k_parser.py`** — Parse and display 401k holdings from extracted PDF text:
     ```bash
-    py 401k_parser.py
+    py src\401k_parser.py
     ```
