@@ -18,7 +18,7 @@
 1. Log in to **your employer's 401k portal** (e.g., Fidelity NetBenefits).
 2. Navigate to **"Investments"** → your plan page.
 3. Print or PDF-save the **Investment Choices** page (this contains the full menu of funds available in your plan along with your **Balance Overview**).
-4. Place the PDF in the `Drop_Financial_Info_Here/` folder.
+4. Place the PDF in the `Drop_Financial_Info_Here/` folder. Ensure the filename contains the word `"options"` and does not contain `"transaction"`.
 
 > **Note:** The 401k parser requires a one-time text extraction step. Before running the main Optimizer, double-click **`Portfolio_Optimizer.bat`** or use the inline PDF extraction to automatically read your PDF.
 
