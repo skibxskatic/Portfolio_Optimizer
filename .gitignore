@@ -1,5 +1,6 @@
 # Drop directory for raw financial data
-Drop_Financial_Info_Here/
+Drop_Financial_Info_Here/*
+!Drop_Financial_Info_Here/.gitkeep
 
 # Ignore raw financial data
 data/*.csv

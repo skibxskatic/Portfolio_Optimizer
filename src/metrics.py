@@ -298,6 +298,28 @@ def compute_total_return(ticker: str, period: str = "10y") -> Optional[float]:
     except Exception:
         return None
 
+def compute_trailing_return_annualized(ticker: str, period: str) -> Optional[float]:
+    """
+    Computes the annualized trailing return over the given period.
+    Returns the annualized return as a decimal (e.g., 0.12 for 12% annualized return).
+    Returns None if insufficient history.
+    """
+    hist = _get_price_history(ticker, period)
+    if hist is None:
+        return None
+
+    try:
+        actual_days = (hist.index[-1] - hist.index[0]).days
+        if actual_days < 365:
+            return None
+        
+        years = actual_days / 365.25
+        gross_total = (hist['Close'].iloc[-1] / hist['Close'].iloc[0])
+        annualized_gross = gross_total ** (1 / years) - 1
+        return round(float(annualized_gross), 4)
+    except Exception:
+        return None
+
 
 def compute_net_of_fees_return(ticker: str, period: str = "5y") -> Optional[float]:
     """

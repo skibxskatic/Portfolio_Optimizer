@@ -80,9 +80,18 @@ def fetch_ticker_metadata(tickers: list[str]) -> Dict[str, Dict[str, Any]]:
                 ytd = info.get("ytdReturn", 0.0)
                 ret_1y = ytd / 100.0 if ytd else 0.0
                 
-            # 3-Year and 5-Year Return handling
+            # 3-Year Return handling
             ret_3y = info.get("threeYearAverageReturn", 0.0)
+            if not ret_3y:
+                comp_3y = metrics.compute_trailing_return_annualized(ticker, "3y")
+                ret_3y = comp_3y if comp_3y is not None else 0.0
+
+            # 5-Year Return handling
             ret_5y = info.get("fiveYearAverageReturn", 0.0)
+            if not ret_5y:
+                comp_5y = metrics.compute_trailing_return_annualized(ticker, "5y")
+                ret_5y = comp_5y if comp_5y is not None else 0.0
+                
             # Compute precise beta from historical returns instead of yfinance .info
             computed_beta = metrics.compute_beta(ticker)
 
