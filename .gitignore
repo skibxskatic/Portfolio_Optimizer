@@ -8,14 +8,25 @@ data/*.json
 
 # Python
 __pycache__/
+*.py[cod]
+*$py.class
 venv/
+env/
+.venv/
+.pytest_cache/
 .env
 
-# System / Logs
+# System / Logs / IDE Tools
 .DS_Store
+Thumbs.db
 *.log
+.idea/
+.vscode/
 
-# Documents / Generated Artifacts
+# Build / Generated Artifacts
+dist/
+build/
+coverage/
 *.pdf
 data/*.pdf
 data/Portfolio_Analysis_Report.md

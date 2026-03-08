@@ -352,7 +352,8 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         f.write("Funds dynamically selected today based on live market data, scored using per-account metrics aligned to each account's investment objective.\n\n")
 
         print("Fetching a dynamic universe of replacement candidates from live market data...")
-        candidate_tickers = market_data.get_dynamic_etf_universe()
+        dynamic_tickers = market_data.get_dynamic_etf_universe()
+        candidate_tickers = list(dynamic_tickers)
         
         # Ensure that ALL funds offered in the 401k plan are included in the evaluation
         if plan_menu_tickers:
@@ -370,6 +371,7 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
 
         for ticker, data in candidate_data.items():
             is_plan_menu = bool(plan_menu_tickers and ticker in plan_menu_tickers)
+            is_dynamic = ticker in dynamic_tickers
             
             # STRICT QA: Must be an ETF or Mutual Fund (exempt 401k plan funds)
             quote_type = data.get("type", "").upper()
@@ -408,13 +410,16 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
             cand = score_candidate(ticker, cand, routing)
 
             if routing == "Roth IRA":
-                roth_candidates.append(cand)
+                if is_dynamic:
+                    roth_candidates.append(cand)
             elif routing == "Tax-Deferred":
                 # Tax-Deferred candidates go to both 401k and HSA lists
                 k401_candidates.append(cand)
-                hsa_candidates.append(cand)
+                if is_dynamic:
+                    hsa_candidates.append(cand)
             else:
-                taxable_candidates.append(cand)
+                if is_dynamic:
+                    taxable_candidates.append(cand)
 
         roth_candidates.sort(key=lambda x: x["score"], reverse=True)
         k401_candidates.sort(key=lambda x: x["score"], reverse=True)
@@ -484,10 +489,12 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
                         val = c.get(key)
                         if val is None:
                             row += " N/A |"
-                        elif isinstance(val, float) and abs(val) < 1:
-                            row += f" {val:.3f} |"
+                        elif "return" in key or "drawdown" in key:
+                            # Percentages
+                            row += f" {val*100:+.2f}% |" if "return" in key else f" {val*100:.2f}% |"
                         elif isinstance(val, float):
-                            row += f" {val*100:.2f}% |"
+                            # Decimal ratios
+                            row += f" {val:.3f} |"
                         else:
                             row += f" {val} |"
                             

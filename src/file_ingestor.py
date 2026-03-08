@@ -245,12 +245,22 @@ def discover_401k_files(data_dir: Path) -> List[Path]:
             name_lower = f.name.lower()
             if '401k' not in name_lower and '401' not in name_lower:
                 continue
+            if 'transaction' in name_lower:
+                continue
             if f.suffix.lower() in ('.csv', '.xlsx', '.xls', '.pdf', '.txt'):
                 found.append(f)
 
-    # Sort: PDFs first, then CSVs, then text files
+    # Sort: PDFs first, then CSVs, then text files.
+    # Within each extension, prioritize files with 'options' in the name.
     priority = {'.pdf': 0, '.csv': 1, '.xlsx': 2, '.xls': 3, '.txt': 4}
-    found.sort(key=lambda p: priority.get(p.suffix.lower(), 5))
+    
+    def sort_key(p: Path) -> Tuple[int, int]:
+        ext_score = priority.get(p.suffix.lower(), 5)
+        # 0 if 'options' in name, 1 otherwise
+        name_score = 0 if 'options' in p.name.lower() else 1
+        return (ext_score, name_score)
+
+    found.sort(key=sort_key)
 
     return found
 
