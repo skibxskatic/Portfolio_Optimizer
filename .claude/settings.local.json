@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude mcp:*)",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "Bash(cd \"/e/GenAI_Antigravity_Projects/02_Active_Projects/Portfolio_Optimizer/src\" && python -c \"\nimport sys\nsys.path.insert\\(0, '.'\\)\nimport parser\nimport importlib\nk401_parser = importlib.import_module\\('401k_parser'\\)\nimport file_ingestor\nprint\\('Shim imports OK'\\)\nprint\\('parser.load_fidelity_positions:', parser.load_fidelity_positions\\)\nprint\\('k401_parser.extract_plan_menu:', k401_parser.extract_plan_menu\\)\nprint\\('file_ingestor.discover_401k_files:', file_ingestor.discover_401k_files\\)\n\")",
+      "Bash(cd \"/e/GenAI_Antigravity_Projects/02_Active_Projects/Portfolio_Optimizer/src\" && python test_tlh_screener.py 2>&1 | tail -20)",
+      "Bash(cd \"/e/GenAI_Antigravity_Projects/02_Active_Projects/Portfolio_Optimizer/src\" && python -c \"\nimport sys\nsys.stdout.reconfigure\\(encoding='utf-8'\\)\nexec\\(open\\('test_tlh_screener.py'\\).read\\(\\)\\)\n\" 2>&1 | tail -20)",
+      "Bash(cd \"/e/GenAI_Antigravity_Projects/02_Active_Projects/Portfolio_Optimizer/src\" && python -c \"\nimport sys, io\nsys.stdout = io.TextIOWrapper\\(sys.stdout.buffer, encoding='utf-8', errors='replace'\\)\nimport importlib.util, types\nspec = importlib.util.spec_from_file_location\\('test', 'test_tlh_screener.py'\\)\n\" 2>&1)",
+      "Bash(cd \"/e/GenAI_Antigravity_Projects/02_Active_Projects/Portfolio_Optimizer/src\" && python -c \"\nimport sys\nsys.path.insert\\(0, '.'\\)\nimport parser\nfrom pathlib import Path\n\npos_path = Path\\('test_data/Test_Positions.csv'\\)\nhist_path = Path\\('test_data/Test_History.csv'\\)\n\npositions_df = parser.load_fidelity_positions\\(pos_path\\)\nhistory_df = parser.load_fidelity_history\\(hist_path\\)\n\nprint\\('History columns:', list\\(history_df.columns[:6]\\)\\)\nprint\\('Action values:', history_df['Action'].unique\\(\\)\\)\nprint\\('Date sample:', history_df['Date'].iloc[0], type\\(history_df['Date'].iloc[0]\\)\\)\n\nunrolled = parser.unroll_tax_lots\\(positions_df, history_df\\)\nprint\\(f'Unrolled lots: {len\\(unrolled\\)} \\(expected 11\\)'\\)\nspy_lots = unrolled[unrolled['Symbol'] == 'SPY']\nprint\\(f'SPY cost basis sum: {spy_lots[\\\\\"Cost Basis\\\\\"].sum\\(\\)} \\(expected 800.0\\)'\\)\n\" 2>&1)",
+      "Bash(ls /c/Users/luowe/.claude/plugins/ && cat /c/Users/luowe/.claude/settings.json | python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:v for k,v in d.items\\(\\) if 'skill' in k.lower\\(\\) or 'plugin' in k.lower\\(\\)}, indent=2\\)\\)\" 2>/dev/null || echo \"no skill-related settings\")",
+      "Bash(cat /c/Users/luowe/.claude/plugins/installed_plugins.json | py -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d, indent=2\\)\\)\" | head -80)"
+    ]
+  }
+}

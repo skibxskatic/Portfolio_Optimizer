@@ -20,6 +20,29 @@ ACCOUNT_TYPE_MAP = {
     "Health Savings Account": "HSA",
 }
 
+SUBSTANTIALLY_IDENTICAL_MAP = {
+    "FTEC": "US Tech", "XLK": "US Tech", "VGT": "US Tech",
+    "FNILX": "Large Cap Comp", "FNCMX": "Large Cap Comp", "ONEQ": "Large Cap Comp",
+    "FELG": "Large Cap Growth", "QQQ": "Large Cap Growth", "SPYG": "Large Cap Growth"
+}
+
+def get_substantially_identical_symbols(symbol: str) -> set:
+    """Returns a set of all tickers in the same substantially identical category."""
+    group = SUBSTANTIALLY_IDENTICAL_MAP.get(symbol)
+    if not group:
+        return {symbol}
+    return {k for k, v in SUBSTANTIALLY_IDENTICAL_MAP.items() if v == group}
+
+def detect_wash_sale_risk(main_df: pd.DataFrame, candidate_symbol: str) -> bool:
+    """
+    Checks if the candidate_symbol or a substantially identical symbol is held in more
+    than one distinct 'Account Name' in the overall portfolio.
+    """
+    identical_symbols = get_substantially_identical_symbols(candidate_symbol)
+    held_in = main_df[main_df['Symbol'].isin(identical_symbols)]
+    accounts = held_in['Account Name'].dropna().unique()
+    return len(accounts) > 1
+
 DE_MINIMIS_GAIN_PCT = 0.01  # 1% of lot value — gains below this are safe to reallocate
 
 # --- Asset Routing ---
@@ -277,12 +300,14 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         f.write("### 🚨 Tax-Loss Harvesting Candidates\n")
         if not tlh_lots.empty:
             f.write("The following lots are currently held at a loss. Selling these will harvest the loss to offset your other capital gains (up to $3,000 against ordinary income).\n\n")
-            f.write("| Symbol | Description | Tax Category | Underwater Lots |\n")
-            f.write("|---|---|---|---|\n")
+            f.write("| Symbol | Description | Tax Category | Underwater Lots | Wash Sale Risk |\n")
+            f.write("|---|---|---|---|---|\n")
 
             harvestable = tlh_lots.groupby(['Symbol', 'Description', 'Tax_Category']).size().reset_index(name='Lot Count')
             for _, row in harvestable.iterrows():
-                f.write(f"| **{row['Symbol']}** | {row['Description']} | {row['Tax_Category']} | {row['Lot Count']} lot(s) underwater |\n")
+                risk = detect_wash_sale_risk(df, row['Symbol'])
+                risk_str = "⚠️ YES (Cross-Account)" if risk else "No"
+                f.write(f"| **{row['Symbol']}** | {row['Description']} | {row['Tax_Category']} | {row['Lot Count']} lot(s) underwater | {risk_str} |\n")
         else:
             f.write("*Amazing! No assets are currently held at a loss. No TLH opportunities exist right now.*\n")
 
@@ -535,8 +560,8 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
             # 5a. Current Holdings Table
             # Filter specifically for 'Employer 401k' to segregate it from HSA accounts
             # which were previously merged into the 'Tax-Deferred' routing bucket.
-            if 'Account Type' in df.columns and 'Account' in df.columns:
-                k401_df = df[df['Account'].str.contains('401k|401K', na=False)].copy()
+            if 'Account Type' in df.columns and 'Account Name' in df.columns:
+                k401_df = df[df['Account Name'].str.contains('401k|401K', na=False)].copy()
             else:
                 k401_df = pd.DataFrame()
 

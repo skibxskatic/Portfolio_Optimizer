@@ -20,11 +20,14 @@
 ## 4. Key Features & Workflows
 
 ### Phase 1: Ingestion & Parsing (Data Layer)
-*   **CSV Parser:** A robust Pandas module designed to ingest standard brokerage CSV structures (skipping header metadata, mapping column names). Supports automatic aggregation of multiple `Accounts_History*.csv` files.
+*   **Multi-Broker Adapter Layer (`src/parsers/`):** A broker-agnostic ingestion layer built on an abstract `BrokerAdapter` base class. An `ADAPTER_REGISTRY` ordered list `[Fidelity, Schwab, Vanguard, TRowePrice, Principal, Generic]` is iterated per file; the first adapter whose `detect()` method returns `True` claims the file. All adapters output the same **canonical schema** regardless of source broker. `GenericAdapter` is always last — it uses fuzzy column-name matching as a fallback for unknown brokers.
+    *   **Canonical Positions columns:** `Symbol`, `Description`, `Account Name`, `Account Type`, `Quantity`, `Current Value`, `Cost Basis Total`, `Average Cost Basis`, `Expense Ratio`
+    *   **Canonical History columns:** `Date`, `Action` (`Buy` | `Sell` | `Reinvestment` | `Dividend` | `Transfer`), `Symbol`, `Description`, `Quantity`, `Price`, `Amount`, `Account Name`
+*   **CSV Parser (`parser.py` shim → `parsers.fidelity.FidelityAdapter`):** `portfolio_analyzer.py` calls `load_fidelity_positions()` / `load_fidelity_history()` unchanged. These are backward-compat shims that delegate to `FidelityAdapter`. Fidelity history action strings are normalized at the adapter layer (`YOU BOUGHT`→`Buy`, `REINVESTMENT`→`Reinvestment`, etc.) and column names are renamed to canonical form (`Run Date`→`Date`, `Account`→`Account Name`).
     *   **Data Freshness Requirement:** The parser relies on `Portfolio_Positions.csv` as the absolute source of truth for the *current* quantity of shares held today. A fresh export is required per run.
-*   **Tax Lot Unrolling:** Break down aggregate ticker holdings into individual tax lots (Purchase Date, Cost Basis, Current Value) to calculate holding periods using FIFO (First-In-First-Out) accounting. The unroller intentionally **ignores sell transactions** in the history CSVs, as applying sells manually would double-count share depletion already reflected in the current positions file.
-*   **401k Parser (`401k_parser.py`):** A dedicated parser for 401k statement PDFs and extracted text. Extracts current holdings (fund name, ticker, shares, market value, cost basis) from the "Balance Overview" section, and dynamically discovers the entire available plan fund menu from the "Investment Choices" section. No hardcoding is required; the parser automatically identifies all available options for constraint matching. Tax lot analysis is **not applicable** to 401k accounts (tax-deferred).
-*   **File Format Auto-Dispatcher (`file_ingestor.py`):** A 3-layer detection pipeline that auto-detects file formats (CSV, Excel, PDF, extracted text) and routes them to the correct parser. For 401k files, it explicitly ignores documents containing "transaction" in the filename to ensure it exclusively parses "Investment Options" packages. PDFs are extracted inline via `pypdf` — no separate batch file step needed.
+*   **Tax Lot Unrolling:** Break down aggregate ticker holdings into individual tax lots (Purchase Date, Cost Basis, Current Value) to calculate holding periods using FIFO (First-In-First-Out) accounting. The unroller intentionally **ignores sell transactions** in the history CSVs, as applying sells manually would double-count share depletion already reflected in the current positions file. Uses canonical `Date` column and `Action.isin({'Buy', 'Reinvestment'})` filter.
+*   **401k Parser (`401k_parser.py` shim → `parsers.fidelity.FidelityAdapter`):** A backward-compat shim re-exporting 401k parsing functions from `parsers.fidelity`. Extracts current holdings from the "Balance Overview" section and dynamically discovers the available plan fund menu from the "Investment Choices" section. No hardcoding required. Tax lot analysis is **not applicable** to 401k accounts (tax-deferred). T. Rowe Price and Principal 401k formats are handled by their respective adapters.
+*   **File Format Auto-Dispatcher (`file_ingestor.py`):** A 3-layer detection pipeline that auto-detects file formats (CSV, Excel, PDF, extracted text) and routes to the correct adapter. For 401k files, iterates `ADAPTER_REGISTRY` calling each adapter's `detect_401k()`. For CSV/Excel positions and history files, calls `detect_broker()` to find the matching adapter. PDFs are extracted inline via `pypdf` — no separate batch file step needed.
 
 ### Phase 2: Market Intelligence Engine
 *   **Dynamic Candidate Scraper (`get_dynamic_etf_universe`):** Before scoring replacement funds, the engine fetches a live universe of 60-80 candidate ETFs and Mutual Funds directly from Yahoo Finance's screener pages (`finance.yahoo.com/etfs`, `/screener/predefined/top_mutual_funds`) using a lightweight `requests` + regex parser. If scraping fails, it falls back to a hardcoded baseline of 6 high-quality dividend funds. Individual equities returned by the scraper must be intercepted and dropped.
@@ -161,6 +164,7 @@ To ensure the scripts are robust and data is accurate before finalization, all l
     * Funds with known expense ratios of 0.65% (must trigger replacement evaluation via net-of-fees comparison).
 *   The Optimization Engine must successfully pass 100% of these synthetic test cases before being deemed complete.
 *   **Pre-Flight Pipeline:** The `validator.py` script must be actively integrated to automatically execute and assert these reality checks *before* the markdown analyzer runs.
+*   **TDD Scripts:** `test_tlh_screener.py` is used to verify Phase 1 Tax Lot Unrolling, and `test_pdf_format.py` validates continuous PDF generation logic.
 
 ## 6. Technical Stack
 *   **Language:** Python 3.x
@@ -168,11 +172,12 @@ To ensure the scripts are robust and data is accurate before finalization, all l
 *   **Market Data:** `yfinance`
 *   **Web Scraping (Dynamic Screener):** `requests`, `re`, `lxml`
 *   **PDF Parsing (401k):** `pypdf` (inline extraction via `file_ingestor.py`)
+*   **Excel Parsing (Generic fallback):** `openpyxl` (used by `GenericAdapter` for `.xlsx` broker exports)
 *   **Risk Metrics:** Custom `metrics.py` module (Sharpe, Sortino, Max Drawdown, Tracking Error)
 *   **Output Presentation:** Markdown report generation.
+*   **Diagnostics:** `er_performance_analyzer.py` quantitatively validates the 0.40% ER screening threshold by measuring net return trade-offs.
 
 ## 7. Future Extensions
 *   Backtesting engine (using `scipy.optimize` to plot the Efficient Frontier and optimize the portfolio's Sharpe ratio using trailing windows appropriate to each account's time horizon).
 *   Wash-sale safety period tracker (30-day countdown timers for harvested lots).
-*   ER vs. Performance diagnostic tool (`er_performance_analyzer.py`) — quantitatively validates the 0.40% ER screening threshold by measuring net return trade-offs.
 *   Automated 401k PDF re-ingestion — detect when new statement PDFs are added to `Drop_Financial_Info_Here/` and re-parse automatically instead of requiring manual re-extraction.

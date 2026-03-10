@@ -233,11 +233,50 @@ def verify_metrics_computation() -> bool:
     print(f"\u2705 Metrics QA PASSED: SPY Sharpe={sharpe:.3f}, Sortino={sortino:.3f}, MaxDD={max_dd*100:.1f}%, RF={rf*100:.2f}%")
     return True
 
+def verify_cross_account_wash_sale_logic() -> bool:
+    """
+    Reality Check 6: Wash Sale QA.
+    Verifies that the cross-account wash sale detection fires correctly on synthetic data.
+    """
+    print("Running Wash Sale QA on synthetic data...")
+    import portfolio_analyzer
+
+    # 1. Single account holding (should NOT fire)
+    df1 = pd.DataFrame([
+        {"Symbol": "SPY", "Account Name": "Taxable"},
+        {"Symbol": "SPY", "Account Name": "Taxable"},
+    ])
+    if portfolio_analyzer.detect_wash_sale_risk(df1, "SPY"):
+        print("❌ Wash Sale QA FAILED: SPY in same account incorrectly flagged.")
+        return False
+        
+    # 2. Same-account identical holding (should NOT fire)
+    df2 = pd.DataFrame([
+        {"Symbol": "QQQ", "Account Name": "Taxable"},
+        {"Symbol": "SPYG", "Account Name": "Taxable"},
+    ])
+    if portfolio_analyzer.detect_wash_sale_risk(df2, "QQQ"):
+        print("❌ Wash Sale QA FAILED: QQQ/SPYG in same account incorrectly flagged.")
+        return False
+        
+    # 3. Cross-account identical holding (should fire)
+    df3 = pd.DataFrame([
+        {"Symbol": "FTEC", "Account Name": "Taxable"},
+        {"Symbol": "XLK", "Account Name": "Roth"},
+    ])
+    if not portfolio_analyzer.detect_wash_sale_risk(df3, "FTEC"):
+        print("❌ Wash Sale QA FAILED: FTEC/XLK in cross accounts NOT flagged.")
+        return False
+
+    print("✅ Wash Sale Detection QA PASSED: Cross-account identical fund detection works.")
+    return True
+
 if __name__ == "__main__":
     api_ok = verify_yfinance_sane()
     screener_ok = verify_dynamic_screener()
     routing_ok = verify_asset_routing_logic()
     metrics_ok = verify_metrics_computation()
+    wash_sale_ok = verify_cross_account_wash_sale_logic()
     
     data_dir = Path("Drop_Financial_Info_Here")
     positions_files = list(data_dir.glob("Portfolio_Positions*.csv"))
@@ -252,7 +291,7 @@ if __name__ == "__main__":
         df = parser.load_fidelity_positions(positions_files[0])
         ingest_ok = verify_ingestion(positions_files[0], df)
 
-    if api_ok and screener_ok and routing_ok and metrics_ok and ingest_ok:
+    if api_ok and screener_ok and routing_ok and metrics_ok and wash_sale_ok and ingest_ok:
         print("\n✅ ALL QA CHECKS PASSED. Engine is safe to run.")
         sys.exit(0)
     else:

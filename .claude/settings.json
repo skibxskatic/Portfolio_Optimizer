@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import sys,json; data=json.load(sys.stdin); fp=data.get('tool_input',data).get('file_path',''); blocked='Drop_Financial_Info_Here' in fp; print('BLOCKED: Do not edit files in Drop_Financial_Info_Here/ — these are live financial data files.') if blocked else None; sys.exit(1 if blocked else 0)\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import sys,json,subprocess; data=json.load(sys.stdin); fp=data.get('tool_input',data).get('file_path',''); r=subprocess.run(['python','-m','py_compile',fp],capture_output=True,text=True) if fp.endswith('.py') else None; print('SYNTAX ERROR in '+fp+': '+r.stderr.strip()) if r and r.returncode!=0 else None\""
+          }
+        ]
+      }
+    ]
+  }
+}
