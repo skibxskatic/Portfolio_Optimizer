@@ -413,6 +413,7 @@ def unroll_tax_lots(positions_df: pd.DataFrame, history_df: pd.DataFrame) -> pd.
             unrolled_lots.append({
                 'Symbol': symbol,
                 'Description': pos.get('Description'),
+                'Account Name': pos.get('Account Name', ''),
                 'Purchase Date': buy.get('Date'),
                 'Quantity': qty_to_take,
                 'Unit Cost': unit_price,
@@ -430,6 +431,7 @@ def unroll_tax_lots(positions_df: pd.DataFrame, history_df: pd.DataFrame) -> pd.
             unrolled_lots.append({
                 'Symbol': symbol,
                 'Description': pos.get('Description'),
+                'Account Name': pos.get('Account Name', ''),
                 'Purchase Date': pd.NaT,
                 'Quantity': shares_needed,
                 'Unit Cost': pos.get('Average Cost Basis', 0),

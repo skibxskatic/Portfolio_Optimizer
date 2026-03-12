@@ -212,17 +212,22 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
     metadata = market_data.fetch_ticker_metadata(symbols)
 
     # 2. Combine portfolio data with market data
-    df['Expense Ratio'] = df['Symbol'].map(lambda x: metadata.get(x, {}).get('expense_ratio_pct', 0.0))
+    df['Expense Ratio'] = df['Symbol'].map(lambda x: metadata.get(x, {}).get('expense_ratio_pct'))
     df['Yield'] = df['Symbol'].map(lambda x: metadata.get(x, {}).get('yield', 0.0))
     df['Type'] = df['Symbol'].map(lambda x: metadata.get(x, {}).get('type', 'UNKNOWN'))
 
     # We only use Current Value to calculate weighted averages, but NEVER print it to stdout.
     total_portfolio_value = df['Current Value'].sum()
 
-    # Calculate Weighted Average Expense Ratio
-    df['Value_Weight'] = df['Current Value'] / total_portfolio_value
-    df['Weighted_ER'] = df['Expense Ratio'] * df['Value_Weight']
-    portfolio_weighted_er = df['Weighted_ER'].sum()
+    # Calculate Weighted Average Expense Ratio (exclude positions with no ER data)
+    df_er = df[df['Expense Ratio'].notna()].copy()
+    er_total_value = df_er['Current Value'].sum()
+    if er_total_value > 0:
+        df_er['Value_Weight'] = df_er['Current Value'] / er_total_value
+        df_er['Weighted_ER'] = df_er['Expense Ratio'] * df_er['Value_Weight']
+        portfolio_weighted_er = df_er['Weighted_ER'].sum()
+    else:
+        portfolio_weighted_er = 0.0
 
     # 3. Write analysis to a local Markdown file
     cache_dir = data_dir / ".cache"
@@ -285,31 +290,70 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
             desc = row.get('Description', '')
             account_name = row['Account Name']
             account_type = row['Account Type']
-            er = row.get('Expense Ratio', 0.0)
+            er = row.get('Expense Ratio')
             action = row['Action']
             if action == "Core Cash Position":
                 er = 0.0
-            f.write(f"| {sym} | {account_name} | {account_type} | {desc} | {er:.3f}% | {action} |\n")
+            er_str = f"{er:.3f}%" if er is not None else "N/A"
+            f.write(f"| {sym} | {account_name} | {account_type} | {desc} | {er_str} | {action} |\n")
 
         # --- Section 3: Tax Optimization ---
         f.write("\n## 3. Tax Optimization & Loss Harvesting\n")
         f.write("By tracking individual lot purchase dates via FIFO accounting, we can optimize your short-term/long-term capital gains classification and find tax loss harvesting opportunities.\n\n")
 
-        # TLH Opportunities
+        # TLH Opportunities — taxable accounts only (401k, Roth IRA, HSA losses have no tax benefit)
         tlh_lots = lots_df[lots_df['Unrealized Gain'] < 0].copy()
-        f.write("### 🚨 Tax-Loss Harvesting Candidates\n")
-        if not tlh_lots.empty:
-            f.write("The following lots are currently held at a loss. Selling these will harvest the loss to offset your other capital gains (up to $3,000 against ordinary income).\n\n")
-            f.write("| Symbol | Description | Tax Category | Underwater Lots | Wash Sale Risk |\n")
-            f.write("|---|---|---|---|---|\n")
+        tlh_lots['Account Type'] = tlh_lots['Account Name'].map(
+            lambda a: resolve_account_type(a) if pd.notna(a) else 'Unknown'
+        )
+        tlh_lots = tlh_lots[tlh_lots['Account Type'] == 'Taxable Brokerage']
 
-            harvestable = tlh_lots.groupby(['Symbol', 'Description', 'Tax_Category']).size().reset_index(name='Lot Count')
-            for _, row in harvestable.iterrows():
+        # Aggregate per (Symbol, Account Name) before writing callout
+        tlh_agg = []
+        for (symbol, account), grp in tlh_lots.groupby(['Symbol', 'Account Name']):
+            est_loss = -grp['Unrealized Gain'].sum()  # positive: loss magnitude
+            desc = grp['Description'].iloc[0] if 'Description' in grp.columns else ''
+            tax_cats = ', '.join(grp['Tax_Category'].dropna().unique())
+            tlh_agg.append({
+                'Symbol': symbol,
+                'Account Name': account,
+                'Description': desc,
+                'Tax_Category': tax_cats,
+                'Est_Loss': est_loss,
+                'Lot_Count': len(grp),
+            })
+        tlh_agg.sort(key=lambda x: x['Est_Loss'], reverse=True)
+
+        # Compute STCG count for the summary callout
+        prof_lots_stcg = lots_df[
+            (lots_df['Unrealized Gain'] > 0) & (lots_df['Tax_Category'] == 'STCG (<1yr)')
+        ]
+        sym_to_account_type = df.set_index('Symbol')['Account Name'].map(resolve_account_type).to_dict()
+        stcg_taxable = prof_lots_stcg[
+            prof_lots_stcg['Symbol'].map(lambda s: sym_to_account_type.get(s, 'Unknown')) == 'Taxable Brokerage'
+        ]
+        stcg_symbol_count = stcg_taxable['Symbol'].nunique()
+
+        # Tax Snapshot callout
+        total_harvestable = sum(r['Est_Loss'] for r in tlh_agg)
+        tlh_position_count = len(tlh_agg)
+        f.write(f"> **Tax Snapshot:** {tlh_position_count} position(s) with harvestable losses totaling (${total_harvestable:,.0f}) | {stcg_symbol_count} position(s) with pending STCG exposure\n\n")
+
+        f.write("### 🚨 Tax-Loss Harvesting Candidates\n")
+        if tlh_agg:
+            f.write("The following lots are currently held at a loss. Selling these will harvest the loss to offset your other capital gains (up to $3,000 against ordinary income).\n\n")
+            f.write("*401k, Roth IRA, and HSA accounts are excluded — losses in tax-advantaged accounts have no tax benefit.*\n\n")
+            f.write("| Priority | Account | Symbol | Description | Tax Category | Est. Loss ($) | Underwater Lots | Wash Sale Risk |\n")
+            f.write("|---|---|---|---|---|---|---|---|\n")
+
+            for rank, row in enumerate(tlh_agg, 1):
                 risk = detect_wash_sale_risk(df, row['Symbol'])
                 risk_str = "⚠️ YES (Cross-Account)" if risk else "No"
-                f.write(f"| **{row['Symbol']}** | {row['Description']} | {row['Tax_Category']} | {row['Lot Count']} lot(s) underwater | {risk_str} |\n")
+                est_loss = row['Est_Loss']
+                f.write(f"| {rank} | {row['Account Name']} | **{row['Symbol']}** | {row['Description']} | {row['Tax_Category']} | (${est_loss:,.0f}) | {row['Lot_Count']} lot(s) | {risk_str} |\n")
         else:
-            f.write("*Amazing! No assets are currently held at a loss. No TLH opportunities exist right now.*\n")
+            f.write("*Amazing! No assets are currently held at a loss in your taxable accounts. No TLH opportunities exist right now.*\n")
+            f.write("\n*401k, Roth IRA, and HSA accounts are excluded — losses in tax-advantaged accounts have no tax benefit.*\n")
 
         # Capital Gains Screener with De Minimis Override
         f.write("\n### ⏳ Capital Gains 'One-Year Wait' Screener\n")
@@ -434,14 +478,18 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
             # Score per-account
             cand = score_candidate(ticker, cand, routing)
 
+            # Flag funds with < 3 years of price history — scored on limited data
+            history_days = metrics.get_history_days(ticker)
+            cand["insufficient_history"] = history_days < 1095
+
             if routing == "Roth IRA":
                 if is_dynamic:
                     roth_candidates.append(cand)
-            elif routing == "Tax-Deferred":
-                # Tax-Deferred candidates go to both 401k and HSA lists
-                k401_candidates.append(cand)
-                if is_dynamic:
+                    # HSA uses same growth-scoring tier as Roth IRA (Sortino + 5Y + 10Y).
+                    # Triple tax advantage makes HSA optimal for long-term compounding, not income.
                     hsa_candidates.append(cand)
+            elif routing == "Tax-Deferred":
+                k401_candidates.append(cand)
             else:
                 if is_dynamic:
                     taxable_candidates.append(cand)
@@ -451,55 +499,48 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         hsa_candidates.sort(key=lambda x: x["score"], reverse=True)
         taxable_candidates.sort(key=lambda x: x["score"], reverse=True)
 
+        # Split each bucket into established (≥ 3Y history) and emerging (< 3Y)
+        roth_main =    [c for c in roth_candidates    if not c.get("insufficient_history")]
+        roth_emerging = [c for c in roth_candidates   if c.get("insufficient_history")]
+        k401_main =    [c for c in k401_candidates    if not c.get("insufficient_history")]
+        k401_emerging = [c for c in k401_candidates   if c.get("insufficient_history")]
+        hsa_main =     [c for c in hsa_candidates     if not c.get("insufficient_history")]
+        hsa_emerging =  [c for c in hsa_candidates    if c.get("insufficient_history")]
+        taxable_main =  [c for c in taxable_candidates if not c.get("insufficient_history")]
+        taxable_emerging = [c for c in taxable_candidates if c.get("insufficient_history")]
+
         # --- 401k Plan Menu Constraint ---
         # If a 401k plan menu was detected, constrain ONLY 401k candidates to the plan menu.
         # HSA candidates remain unconstrained (HSA holders can invest in anything).
         if plan_menu_tickers:
             plan_constrained = [c for c in k401_candidates if c["ticker"] in plan_menu_tickers]
             if plan_constrained:
-                k401_candidates = plan_constrained
+                k401_main = [c for c in plan_constrained if not c.get("insufficient_history")]
+                k401_emerging = [c for c in plan_constrained if c.get("insufficient_history")]
                 print(f"   401k replacement candidates constrained to {len(plan_constrained)} funds from your employer's plan menu.")
             else:
                 print("   ⚠️ No plan menu funds matched the dynamic candidate universe. Showing unconstrained 401k results.")
-            print(f"   HSA replacement candidates: {len(hsa_candidates)} (unconstrained — full dynamic universe).")
+            print(f"   HSA replacement candidates: {len(hsa_candidates)} (growth-scored, full dynamic universe).")
 
-        def write_fund_table(funds, title, description, extra_cols=None):
-            f.write(f"### {title}\n")
-            f.write(f"{description}\n\n")
-
-            # Rearrange columns: ER, Yield, Net 5Y Ret, [Extra Metrics], 1Y Ret, 3Y Ret, 5Y Ret
-            header = "| Ticker | Fund Name | ER | Yield | Net 5Y Ret |"
-            divider = "|---|---|---|---|---|"
-            
-            if extra_cols:
-                for col_name in extra_cols:
-                    header += f" {col_name} |"
-                    divider += "---|"
-                    
-            header += " 1Y Ret | 3Y Ret | 5Y Ret |"
-            divider += "---|---|---|"
-            
+        def _write_fund_rows(funds, header, divider, extra_cols, label_suffix=""):
+            """Writes fund table rows. label_suffix is appended to fund names if set."""
             f.write(header + "\n")
             f.write(divider + "\n")
-
             if not funds:
                 f.write("| N/A | No funds matched criteria | - | - | - |")
                 if extra_cols:
                     f.write(" - |" * len(extra_cols))
                 f.write(" - | - | - |\n")
-                
             for c in funds[:5]:
                 nof = c.get('net_of_fees_5y', 0)
                 r1 = f"{c['1y_return']*100:+.2f}%"
                 r3 = f"{c['3y_return']*100:+.2f}%"
                 r5 = f"{c['5y_return']*100:+.2f}%"
                 nof_str = f"{nof*100:+.2f}%" if nof else "N/A"
-                
-                row = f"| **{c['ticker']}** | {c['name']} | `{c['er']:.2f}%` | *{c['yield']*100:.2f}%* | {nof_str} |"
-                
+                name = c['name'] + (f" {label_suffix}" if label_suffix else "")
+                row = f"| **{c['ticker']}** | {name} | `{c['er']:.2f}%` | *{c['yield']*100:.2f}%* | {nof_str} |"
                 if extra_cols:
                     for col_key in extra_cols:
-                        # Extract the base key name (e.g. "Sharpe Ratio (5Y)" -> "sharpe_ratio", "10Y Ret" -> "total_return_10y")
                         if "10Y" in col_key:
                             key = "total_return_10y"
                         elif "Sharpe" in col_key:
@@ -510,46 +551,69 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
                             key = "max_drawdown"
                         else:
                             key = col_key.lower().replace(" ", "_").replace("(", "").replace(")", "")
-                            
                         val = c.get(key)
                         if val is None:
                             row += " N/A |"
                         elif "return" in key or "drawdown" in key:
-                            # Percentages
                             row += f" {val*100:+.2f}% |" if "return" in key else f" {val*100:.2f}% |"
                         elif isinstance(val, float):
-                            # Decimal ratios
                             row += f" {val:.3f} |"
                         else:
                             row += f" {val} |"
-                            
                 row += f" {r1} | {r3} | {r5} |"
                 f.write(row + "\n")
             f.write("\n")
 
+        def write_fund_table(funds, title, description, extra_cols=None, emerging=None):
+            f.write(f"### {title}\n")
+            f.write(f"{description}\n\n")
+
+            # Rearrange columns: ER, Yield, Net 5Y Ret, [Extra Metrics], 1Y Ret, 3Y Ret, 5Y Ret
+            header = "| Ticker | Fund Name | ER | Yield | Net 5Y Ret |"
+            divider = "|---|---|---|---|---|"
+
+            if extra_cols:
+                for col_name in extra_cols:
+                    header += f" {col_name} |"
+                    divider += "---|"
+
+            header += " 1Y Ret | 3Y Ret | 5Y Ret |"
+            divider += "---|---|---|"
+
+            _write_fund_rows(funds, header, divider, extra_cols)
+
+            if emerging:
+                f.write("#### Emerging Funds (Limited Track Record)\n")
+                f.write("*Scored on available history only — < 3 years of data. Not ranked against established funds.*\n\n")
+                _write_fund_rows(emerging, header, divider, extra_cols, label_suffix="⚠️ < 3Y History")
+
         write_fund_table(
-            roth_candidates,
+            roth_main,
             "🚀 Roth IRA — Maximum Growth",
             "These funds maximize total return. All growth is permanently tax-free. Scored by Sortino Ratio + Net-of-Fees 5Y Return + 10Y Total Return.",
-            extra_cols=["Sortino (5Y)", "10Y Ret"]
+            extra_cols=["Sortino (5Y)", "10Y Ret"],
+            emerging=roth_emerging,
         )
         write_fund_table(
-            k401_candidates,
+            k401_main,
             "💼 Employer 401k — Income & Dividends (Plan-Constrained)",
             "High-yield funds for your employer 401k. Constrained to your plan menu. Scored by Sharpe Ratio + Net-of-Fees 5Y Return.",
-            extra_cols=["Sharpe (5Y)"]
+            extra_cols=["Sharpe (5Y)"],
+            emerging=k401_emerging,
         )
         write_fund_table(
-            hsa_candidates,
-            "🏥 HSA — Income & Dividends (Full Universe)",
-            "High-yield funds for your Health Savings Account. HSA has no plan menu constraint — full dynamic universe. Scored by Sharpe Ratio + Net-of-Fees 5Y Return.",
-            extra_cols=["Sharpe (5Y)"]
+            hsa_main,
+            "🏥 HSA — Maximum Growth (Full Universe)",
+            "Maximum-growth funds for your Health Savings Account. HSA's triple tax advantage (pre-tax contributions, tax-free growth, tax-free qualified withdrawals) makes it optimal for long-term compounding — not income. Full dynamic universe, no plan menu constraint. Scored by Sortino Ratio + Net-of-Fees 5Y Return + 10Y Total Return.",
+            extra_cols=["Sortino (5Y)", "10Y Ret"],
+            emerging=hsa_emerging,
         )
         write_fund_table(
-            taxable_candidates,
+            taxable_main,
             "🏦 Taxable Brokerage — Tax-Efficient Growth",
             "Low-distribution growth funds that minimize taxable events. Scored by Sharpe Ratio + Net-of-Fees 5Y Return + low-yield bonus.",
-            extra_cols=["Sharpe (5Y)", "Max DD (5Y)"]
+            extra_cols=["Sharpe (5Y)", "Max DD (5Y)"],
+            emerging=taxable_emerging,
         )
 
         # --- Section 5: 401k Plan Analysis ---
@@ -687,7 +751,7 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         f.write("- **Taxable Brokerage:** Prioritizes net returns + risk consistency (Sharpe) + low tax drag (low yield). Max Drawdown penalizes volatility that could trigger panic selling.\n")
         f.write("- **Roth IRA:** Maximizes total return using Sortino (ignores upside volatility). 10Y track record validates durable compounding. This is your most valuable tax shelter — put your biggest growers here.\n")
         f.write("- **Employer 401k:** Balances income generation with consistency (Sharpe). Tracking Error ensures index fund fidelity. Constrained to your employer's plan menu. Tax-deferred, so dividends compound without annual drag.\n")
-        f.write("- **HSA:** Same scoring model as 401k (Sharpe + Tracking Error), but with full dynamic universe access. Triple tax advantage — contributions, growth, and qualified withdrawals are all tax-free.\n")
+        f.write("- **HSA:** Same scoring model as Roth IRA (Sortino + Net-of-Fees 5Y + 10Y Total Return). HSA's triple tax advantage makes long-term compounding the optimal strategy — not income generation. Full dynamic universe access, no plan-menu constraint.\n")
 
         markdown_content = f.getvalue()
 

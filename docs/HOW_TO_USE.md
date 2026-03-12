@@ -1,26 +1,35 @@
 # Portfolio Optimizer: How to Use Guide
 
-## 1. Export Your Data from Fidelity
+## 1. Export Your Data
 
 > **🚨 CRITICAL:** You **must always** download a fresh `Portfolio_Positions_...csv` file right before running the Optimizer. The engine relies entirely on this file for your *current* share quantities. Because History exports are often limited to 90 days and may miss older sell events, the engine intentionally ignores "Sell" transactions to prevent math errors. **If you do not provide an updated Positions file, your recent trades will not be reflected in the analysis!**
 
+The engine supports **Fidelity, Schwab, Vanguard, T. Rowe Price, and Principal** — it auto-detects the broker from the CSV format.
+
 ### Brokerage, Roth IRA, and HSA Accounts (CSV)
+
+**Fidelity:**
 1. Log in to your Fidelity account on a desktop browser.
-2. Navigate to the **"Positions"** tab.
-3. In the top right corner of the positions table, click the small **"Download"** icon (it looks like a downward arrow).
-   - This will download a file typically named `Portfolio_Positions_Mar-02-2026.csv`.
-4. Next, navigate to the **"Activity & Orders"** tab.
-5. Under the "History" sub-tab, open the "Time Period" filter.
-6. **Important Note:** Fidelity only allows exporting 90 days of history at a time. To get the full picture for capital gains, you should export multiple 90-day chunks going back 1 to 5 years (e.g., `Accounts_History_Q1.csv`, `Accounts_History_Q2.csv`, etc.).
-7. Click the **"Download"** icon in the top right for each time period you select.
+2. Navigate to **"Positions"** → click the **"Download"** icon (downward arrow). File is typically named `Portfolio_Positions_Mar-02-2026.csv`.
+3. Navigate to **"Activity & Orders"** → **"History"** → set Time Period → click **"Download"**. Repeat for each 90-day chunk going back 1–5 years.
+
+**Schwab:**
+1. Log in to Schwab → go to **"Accounts"** → **"Positions"** → click **"Export"** (CSV).
+2. For history: **"History"** tab → set date range → **"Export"**.
+
+**Vanguard:**
+1. Log in → **"My Accounts"** → **"Holdings"** → **"Download"** (CSV).
+2. For history: **"Transaction history"** → set date range → **"Download"**.
 
 ### 401k Account (PDF)
-1. Log in to **your employer's 401k portal** (e.g., Fidelity NetBenefits).
+
+**Fidelity NetBenefits / Schwab / T. Rowe Price / Principal:**
+1. Log in to your employer's 401k portal.
 2. Navigate to **"Investments"** → your plan page.
-3. Print or PDF-save the **Investment Choices** page (this contains the full menu of funds available in your plan along with your **Balance Overview**).
+3. Print or PDF-save the **Investment Choices** page (this contains the full plan menu and your Balance Overview).
 4. Place the PDF in the `Drop_Financial_Info_Here/` folder. Ensure the filename contains the word `"options"` and does not contain `"transaction"`.
 
-> **Note:** The 401k parser requires a one-time text extraction step. Before running the main Optimizer, double-click **`Portfolio_Optimizer.bat`** or use the inline PDF extraction to automatically read your PDF.
+> **Note:** The 401k parser supports PDF files directly. The engine auto-detects T. Rowe Price and Principal statement formats in addition to Fidelity.
 
 ## 2. Place Your Data in the Project
 For the privacy and security of your financial data, the downloaded files MUST be placed in the local `Drop_Financial_Info_Here/` folder. This folder is explicitly ignored by version control (Git) so your balances will never be uploaded to the cloud.
@@ -60,10 +69,11 @@ The report contains:
 2. **Asset Holding Breakdown** — Every position grouped by account type (Taxable, Roth IRA, Employer 401k, HSA) with suggested actions.
 3. **Tax Optimization** — Tax-loss harvesting candidates, capital gains screener, and de minimis override flags.
 4. **Recommended Replacements** — Four separate tables:
-   - 🚀 **Roth IRA** — Maximum growth funds (scored by Sortino Ratio)
+   - 🚀 **Roth IRA** — Maximum growth funds (scored by Sortino Ratio + Net-of-Fees 5Y + 10Y Total Return)
    - 💼 **Employer 401k** — Income/dividend funds, plan-constrained (scored by Sharpe Ratio)
-   - 🏥 **HSA** — Income/dividend funds, full universe (scored by Sharpe Ratio)
+   - 🏥 **HSA** — Maximum growth, full universe (scored by Sortino Ratio + Net-of-Fees 5Y + 10Y Total Return — same tier as Roth IRA)
    - 🏦 **Taxable Brokerage** — Tax-efficient growth funds (scored by Sharpe + low yield)
+   - Each table may include an **"Emerging Funds"** sub-section for funds with < 3 years of history, labeled `⚠️ < 3Y History`.
 5. **401k Plan Analysis** *(If 401k PDF is provided)* — Dedicated scorecard ranking every fund in your employer's plan, highlighting Rebalance Opportunities and Underperforming Holdings.
 6. **Evaluation Metrics Summary** — Explains each metric, why it's used for each account type, and how to interpret scores.
 
@@ -76,15 +86,15 @@ Running API Reality Checks against known benchmarks (SPY, SCHD)...
 ✅ API Reality Check PASSED: yfinance extraction logic is structurally sound.
 Running Dynamic Screener QA on live targets...
 ✅ Dynamic Screener QA PASSED: Engine successfully filtered raw targets.
-Running Asset Routing QA on known benchmarks (SCHD, QQQ, VTI)...
-✅ Asset Routing QA PASSED: 4-Bucket routing logic is correct.
+Running Asset Routing QA on known benchmarks (SCHD, QQQ, VTI, VGT)...
+✅ Asset Routing QA PASSED: 4-Bucket routing (Taxable, Roth IRA, 401k/Tax-Deferred, HSA growth-tier) validated.
 --- ALL QA PASSED, BEGINNING ENGINE RUN ---
 ```
 
 The checks that run automatically:
 1. **API Sanity Check:** Verifies SPY and SCHD yield/ER are within known-good bounds.
 2. **Dynamic Screener QA:** Confirms live-scraped candidates are ETFs/Mutual Funds, not stocks.
-3. **Asset Routing Validation:** Tests 3-Bucket routing (SCHD→401k/HSA, QQQ→Roth IRA, VTI→Taxable).
+3. **Asset Routing Validation:** Tests 4-Bucket routing against SCHD (→401k), QQQ (→Roth IRA), VTI (→Taxable), VGT (→Roth IRA, confirming HSA growth-tier sourcing).
 4. **Ingestion Checksum:** Confirms no rows were dropped during CSV parsing.
 
 > **⚠️ If a check fails:** The engine prints `❌ PRE-FLIGHT FAILED` and aborts safely.

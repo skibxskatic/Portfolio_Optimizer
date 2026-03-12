@@ -321,6 +321,18 @@ def compute_trailing_return_annualized(ticker: str, period: str) -> Optional[flo
         return None
 
 
+def get_history_days(ticker: str, period: str = "10y") -> int:
+    """
+    Returns the number of calendar days of available price history for a ticker.
+    Uses the internal cache — no extra API calls if the ticker was already scored.
+    Returns 0 if history is unavailable.
+    """
+    hist = _get_price_history(ticker, period)
+    if hist is None or len(hist) < 2:
+        return 0
+    return (hist.index[-1] - hist.index[0]).days
+
+
 def compute_net_of_fees_return(ticker: str, period: str = "5y") -> Optional[float]:
     """
     Computes the annualized net-of-fees return.

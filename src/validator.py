@@ -82,14 +82,17 @@ def verify_yfinance_sane() -> bool:
     
     # SPY: Yield usually 1-2%, ER is exactly 0.09%
     # SCHD: Yield usually 3-4%, ER is exactly 0.06%
-    
+
     spy_yield_ok = 0.005 <= spy.get("yield", 0) <= 0.03
     schd_yield_ok = 0.02 <= schd.get("yield", 0) <= 0.06
-    
-    # ER might be slightly off due to rounding or updates, but check bounds
-    spy_er_ok = 0.05 <= spy.get("expense_ratio_pct", 0) <= 0.15
-    schd_er_ok = 0.03 <= schd.get("expense_ratio_pct", 0) <= 0.10
-    
+
+    # ER must not be None (fetch error) or 0.0 (guard fired incorrectly) for known non-money-market funds.
+    # SPY ER: 0.09%, SCHD ER: 0.06% — both must be fetched successfully.
+    spy_er_pct = spy.get("expense_ratio_pct")
+    schd_er_pct = schd.get("expense_ratio_pct")
+    spy_er_ok = spy_er_pct is not None and 0.05 <= spy_er_pct <= 0.15
+    schd_er_ok = schd_er_pct is not None and 0.03 <= schd_er_pct <= 0.10
+
     is_valid = True
     if not spy_yield_ok:
         print(f"❌ API Check FAILED: SPY yield {spy.get('yield')} is out of sane bounds (0.5% - 3.0%).")
@@ -98,10 +101,10 @@ def verify_yfinance_sane() -> bool:
         print(f"❌ API Check FAILED: SCHD yield {schd.get('yield')} is out of sane bounds (2.0% - 6.0%).")
         is_valid = False
     if not spy_er_ok:
-        print(f"❌ API Check FAILED: SPY ER {spy.get('expense_ratio_pct')}% is out of bounds.")
+        print(f"❌ API Check FAILED: SPY ER {spy_er_pct}% is out of bounds or failed to fetch (None = fetch error).")
         is_valid = False
     if not schd_er_ok:
-        print(f"❌ API Check FAILED: SCHD ER {schd.get('expense_ratio_pct')}% is out of bounds.")
+        print(f"❌ API Check FAILED: SCHD ER {schd_er_pct}% is out of bounds or failed to fetch (None = fetch error).")
         is_valid = False
         
     if is_valid:
@@ -159,30 +162,34 @@ def verify_asset_routing_logic() -> bool:
     Reality Check 4: Asset Routing Validation.
     Fetches benchmarks representing the primary asset categories and asserts
     that the math classifies them into the correct 4-Bucket Tax Location Routing.
-    - SCHD: High Dividend (Yield >= 2.0%) -> Tax-Deferred (401k / HSA)
+    - SCHD: High Dividend (Yield >= 2.0%) -> Tax-Deferred (401k only)
     - QQQ: Tech Growth (Yield < 2.0%, Beta >= 1.0) -> Roth IRA
-    - SPY/VTI: Broad Market (Yield < 2.0%, Beta < 1.0) -> Taxable Brokerage
+    - VTI: Broad Market (Yield < 2.0%, Beta < 1.0) -> Taxable Brokerage
+    - VGT: High-growth tech (Yield < 2.0%, Beta > 1.0) -> Roth IRA
+      Note: VGT confirms HSA growth-tier routing. HSA pulls from the Roth IRA
+      candidate pool (Sortino + 5Y + 10Y scoring) — not from Tax-Deferred income funds.
     """
-    print("Running Asset Routing QA on known benchmarks (SCHD, QQQ, VTI)...")
-    benchmarks = ["SCHD", "QQQ", "VTI"]
+    print("Running Asset Routing QA on known benchmarks (SCHD, QQQ, VTI, VGT)...")
+    benchmarks = ["SCHD", "QQQ", "VTI", "VGT"]
     metadata = market_data.fetch_ticker_metadata(benchmarks)
-    
-    if len(metadata) < 3:
+
+    if len(metadata) < 4:
          print("\u274c Asset Routing QA FAILED: Could not fetch all benchmarks.")
          return False
-         
+
     expected_routing = {
         "SCHD": "Tax-Deferred",
         "QQQ": "Roth IRA",
         "VTI": "Taxable Brokerage",
+        "VGT": "Roth IRA",  # High-growth; also feeds HSA candidate pool
     }
-    
+
     is_valid = True
     for ticker in benchmarks:
         data = metadata.get(ticker, {})
         yld = data.get("yield", 0.0)
         beta = data.get("beta", 1.0)
-        
+
         # 4-Bucket routing logic (mirrors portfolio_analyzer.py)
         if yld >= 0.02:
             routing = "Tax-Deferred"
@@ -190,15 +197,15 @@ def verify_asset_routing_logic() -> bool:
             routing = "Roth IRA"
         else:
             routing = "Taxable Brokerage"
-            
+
         expected = expected_routing[ticker]
         if routing != expected:
             print(f"\u274c Asset Routing QA FAILED: {ticker} (Yield: {yld:.3f}, Beta: {beta:.3f}) routed to '{routing}' instead of '{expected}'.")
             is_valid = False
-            
+
     if is_valid:
-         print("\u2705 Asset Routing QA PASSED: 4-Bucket routing logic is correct.")
-         
+         print("\u2705 Asset Routing QA PASSED: 4-Bucket routing (Taxable, Roth IRA, 401k/Tax-Deferred, HSA growth-tier) validated.")
+
     return is_valid
 
 

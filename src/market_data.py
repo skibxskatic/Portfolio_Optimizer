@@ -5,6 +5,10 @@ import re
 import metrics
 from typing import Dict, Any
 
+# Known money-market tickers that legitimately carry a 0.0% expense ratio
+# as reported by yfinance. Excludes them from the ER fetch-error guard.
+MONEY_MARKET_TICKERS = {"FDRXX", "SPAXX", "FDLXX", "VMFXX", "SWVXX"}
+
 def get_dynamic_etf_universe() -> list[str]:
     """
     Dynamically scrapes live Top ETFs and Top Mutual Funds from Yahoo Finance.
@@ -73,6 +77,11 @@ def fetch_ticker_metadata(tickers: list[str]) -> Dict[str, Dict[str, Any]]:
                 er_pct = float(ann_er) * 100.0
             else:
                 er_pct = 0.0
+            # Guard: a 0.0% ER is only valid for known money-market funds.
+            # For all others, treat it as a fetch error (None) so it is excluded
+            # from weighted-average ER and ER-filter screening.
+            if er_pct == 0.0 and ticker not in MONEY_MARKET_TICKERS:
+                er_pct = None
                 
             # 1-Year Return handling: Stocks use '52WeekChange' (decimal), ETFs use 'ytdReturn' (percent)
             ret_1y = info.get("52WeekChange")
@@ -114,7 +123,7 @@ def fetch_ticker_metadata(tickers: list[str]) -> Dict[str, Dict[str, Any]]:
             metadata[ticker] = {
                 "name": ticker,
                 "type": "UNKNOWN",
-                "expense_ratio_pct": 0.0,
+                "expense_ratio_pct": None,
                 "yield": 0.0,
                 "beta": 1.0,
                 "previous_close": 0.0,

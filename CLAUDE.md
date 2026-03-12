@@ -88,8 +88,8 @@ file_ingestor.py → parsers/ (adapter layer) → portfolio_analyzer.py
 ### Core Business Logic in `portfolio_analyzer.py`
 
 **4-Bucket Routing (`classify_routing_bucket`):**
-- High yield (≥ 2%) → `Tax-Deferred` (covers both 401k and HSA currently — see open constraint CRITICAL-1)
-- Low yield + high beta (> 1.0) → `Roth IRA`
+- High yield (≥ 2%) → `Tax-Deferred` (401k only)
+- Low yield + high beta (> 1.0) → `Roth IRA` (candidates also populate HSA pool — HSA uses Roth IRA growth-scoring tier)
 - Low yield + low beta → `Taxable Brokerage`
 
 **Account Name → Bucket Mapping (`ACCOUNT_TYPE_MAP`):**
@@ -100,7 +100,8 @@ file_ingestor.py → parsers/ (adapter layer) → portfolio_analyzer.py
 **Per-Account Scoring (`score_candidate`):**
 - Taxable Brokerage: Sharpe Ratio + Net-of-Fees 5Y Return (tiebreaker: Max Drawdown, Tracking Error)
 - Roth IRA: Sortino Ratio + Net-of-Fees 5Y Return (tiebreaker: 10Y Total Return)
-- 401k/HSA: Sharpe Ratio + Net-of-Fees 5Y Return (tiebreaker: Tracking Error)
+- HSA: Sortino Ratio + Net-of-Fees 5Y Return (tiebreaker: 10Y Total Return) — same growth tier as Roth IRA
+- 401k: Sharpe Ratio + Net-of-Fees 5Y Return (tiebreaker: Tracking Error)
 
 **Key constants:**
 - `DE_MINIMIS_GAIN_PCT = 0.01` — STCG gains below 1% of lot value are flagged safe to reallocate
@@ -111,21 +112,18 @@ file_ingestor.py → parsers/ (adapter layer) → portfolio_analyzer.py
 
 These are tracked architectural issues that have not yet been implemented:
 
-- **[CRITICAL-1]** HSA is incorrectly bucketed with 401k (income scoring). Should be decoupled to use Roth IRA scoring tier (Sortino + 10Y Return) with its own recommendations table.
-- **[CORRECTNESS-1]** Validator reports "4-Bucket" but only tests 3 buckets — needs HSA added as independent test.
-- **[CORRECTNESS-2]** SPYM reports 0.000% ER; needs fallback to known-good floor or `ER_FETCH_ERROR` flag.
-- **[CORRECTNESS-3]** Funds with < 36 months of history (e.g., IBIT) are scored against full-history funds — need `⚠️ < 3Y History` labeling and separate sub-section.
-- **[OUTPUT-1]** TLH output lacks dollar-weighted columns (`Est. Loss ($)`, `Priority Rank`).
 - **[ADVISORY-1]** `Melissa Investments` needs formal `managed_advisory` account type with partitioned reporting, isolated TLH, and excluded from primary user's portfolio-level metrics.
 
 ### Tax Lot Unrolling Rules
 - Source of truth for current shares: `Portfolio_Positions.csv` (must be fresh per run)
 - The unroller **intentionally ignores sell transactions** from history CSVs — sells are already reflected in the positions file; processing them would double-count share depletion.
+- `Account Name` is copied from `positions_df` into every lot record (both buy-matched and fallback lots) so downstream TLH logic can filter and group by account.
 - FIFO accounting for lot ordering.
 - 401k accounts are exempt from tax lot analysis (tax-deferred).
+- **TLH is filtered to `Taxable Brokerage` accounts only** — losses in Roth IRA, HSA, and 401k have no tax benefit and are excluded from TLH output.
 
 ### Output
-The engine outputs `Portfolio_Analysis_Report_<timestamp>.pdf` in the project root. The PDF uses a continuous single-page format (`297x2000mm`) to eliminate page breaks cutting through tables.
+The engine outputs `Portfolio_Analysis_Report_<timestamp>.pdf` to `Drop_Financial_Info_Here/.cache/`. The PDF uses a continuous single-page format with dynamic height (`max(210, 50 + line_count * 6.5)` mm) to eliminate page breaks cutting through tables.
 
 ### Privacy Constraint
 No raw financial data (dollar amounts, account numbers) may be printed to stdout during execution. Only anonymized ticker symbols are sent to external APIs via `yfinance`.

@@ -24,7 +24,7 @@ Not all investment accounts are taxed the same way. The Optimizer uses a **4-Buc
 
 1. **Roth IRA (Maximum Growth):** You never pay taxes on Roth IRA withdrawals. Therefore, the Optimizer wants to put your highest-growth, most aggressive funds here. It doesn't care if the fund is volatile, as long as it makes the most money over the long term.
 2. **Employer 401k (Income & Dividends — Plan-Constrained):** Your 401k is "tax-deferred" and limited to funds your employer offers. The Optimizer looks for high-yield, dividend-paying funds within your plan menu.
-3. **HSA (Income & Dividends — Full Universe):** Your HSA has a *triple* tax advantage (contributions, growth, and qualified withdrawals are all tax-free). The Optimizer uses the same income-focused scoring as 401k, but with access to the entire market — not just your employer's plan.
+3. **HSA (Maximum Growth — Full Universe):** Your HSA has a *triple* tax advantage (contributions, growth, and qualified withdrawals are all tax-free). Because all growth is permanently tax-free and you can invest in any fund on the market, the Optimizer treats your HSA the same as your Roth IRA — scoring it for *maximum long-term compounding* (Sortino Ratio + 5Y Net Return + 10Y Total Return), not income generation. This is where your biggest long-term growers belong.
 4. **Taxable Brokerage (Tax-Efficient Growth):** You pay taxes on every dollar this account generates in dividends or capital gains. The Optimizer strictly looks for "tax-efficient" funds here — meaning funds that grow steadily but pay very little in dividends, minimizing your yearly tax bill.
 
 ## 4. Grading Your Current Funds
@@ -41,7 +41,9 @@ It **does not recommend individual stocks** (like Apple or Tesla). It only recom
 
 It scores these replacements using advanced risk mathematics:
 * **For your Taxable Brokerage and 401k:** It uses the **Sharpe Ratio**, which measures how smooth and consistent a fund's growth is. It actively penalizes funds that are a wild rollercoaster.
-* **For your Roth IRA:** It uses the **Sortino Ratio**, which is similar, but it *only* penalizes a fund if it crashes downward. It doesn't penalize a fund for unexpectedly shooting upward, which is exactly what you want in a tax-free growth account.
+* **For your Roth IRA and HSA:** It uses the **Sortino Ratio**, which is similar, but it *only* penalizes a fund if it crashes downward. It doesn't penalize a fund for unexpectedly shooting upward, which is exactly what you want in a permanently tax-free growth account.
+
+**Note on emerging funds:** Any fund with less than 3 years of price history is flagged with `⚠️ < 3Y History` and shown in a separate "Emerging Funds" sub-section below each bucket's main ranked table. This prevents a fund's short-term Sortino score from being compared head-to-head against a fund with 10 years of data.
 
 ## 6. 401k Plan Evaluation
 
@@ -57,9 +59,10 @@ This means the 401k analysis section in your report gives you a complete, person
 
 ## 7. Saving You Taxes (Harvesting & Capital Gains)
 
-Finally, it looks at the exact day you bought every single share in your portfolio:
-* **Tax-Loss Harvesting:** If you bought shares that have gone down in value, the Optimizer will flag them. Selling these specific "underwater" shares allows you to deduct the loss from your taxes, saving you money on April 15th.
-* **The "One-Year Wait" Screener:** If you bought shares less than a year ago that have gone *up* in value, selling them now will trigger massive "Short-Term Capital Gains" taxes. The Optimizer flags these shares and tells you exactly how many are safely past the 1-year mark (Long-Term Capital Gains) and how many you should wait to sell. 
+Finally, it looks at the exact day you bought every single share in your **taxable accounts**:
+* **Tax Snapshot:** At the top of the Tax Optimization section, the report shows a one-line summary: the number of positions with harvestable losses and their total estimated value, plus the number of positions with pending short-term capital gains exposure.
+* **Tax-Loss Harvesting:** If you bought shares in a taxable account that have gone down in value, the Optimizer will flag them. Selling these specific "underwater" shares allows you to deduct the loss from your taxes, saving you money on April 15th. **Note:** Only your taxable brokerage accounts (e.g., INDIVIDUAL, Melissa Investments) appear here — losses inside a Roth IRA, HSA, or 401k have zero tax benefit and are intentionally excluded.
+* **The "One-Year Wait" Screener:** If you bought shares less than a year ago that have gone *up* in value, selling them now will trigger massive "Short-Term Capital Gains" taxes. The Optimizer flags these shares and tells you exactly how many are safely past the 1-year mark (Long-Term Capital Gains) and how many you should wait to sell.
 * **The "De Minimis" Override:** If you have a short-term gain that is incredibly tiny (less than 1% of the value of the shares), the Optimizer will flag it as "Safe to Reallocate." The tax hit is so small that it's mathematically better to just sell it now and move the money into a better fund.
 
 ## 8. The Final Report
