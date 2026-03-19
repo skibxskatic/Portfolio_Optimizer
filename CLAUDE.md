@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Windows: Double-click Portfolio_Optimizer.bat, or run directly:
 py src/portfolio_analyzer.py
 
-# macOS/Linux: Double-click Portfolio_Optimizer.command, or run directly:
+# macOS: Double-click Portfolio_Optimizer_Mac.app, or run directly:
 ./Portfolio_Optimizer.command
 ```
 

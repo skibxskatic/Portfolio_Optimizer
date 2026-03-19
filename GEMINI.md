@@ -22,7 +22,8 @@ The **Portfolio Optimizer** is a local, privacy-first Python engine designed to 
 - **`src/market_data.py`:** Fetches live pricing, yields, and expense ratios.
 - **`src/er_performance_analyzer.py`:** Diagnostic tool to quantitatively validate the 0.40% ER screening threshold against net performance tradeoffs.
 - **`Portfolio_Optimizer.bat`:** Primary user entry point (Windows).
-- **`Portfolio_Optimizer.command`:** macOS/Linux launcher (double-clickable equivalent to `.bat`).
+- **`Portfolio_Optimizer_Mac.app`:** macOS launcher (native `.app` bundle — no `chmod` needed).
+- **`Portfolio_Optimizer.command`:** macOS shell script (used internally by the `.app`).
 - **`src/run_optimizer.ps1`:** The PowerShell execution wrapper that handles virtual environment activation, cache setup, and launches the engine.
 
 ## Building and Running
@@ -41,7 +42,7 @@ pip install pandas numpy yfinance requests lxml openpyxl
 
 ### Execution
 - **Windows:** Double-click `Portfolio_Optimizer.bat`.
-- **macOS/Linux:** Double-click `Portfolio_Optimizer.command` (or run `./Portfolio_Optimizer.command` from terminal).
+- **macOS:** Double-click `Portfolio_Optimizer_Mac.app` (or run `./Portfolio_Optimizer.command` from terminal).
 - **Developer Run:** `python src/portfolio_analyzer.py` (ensure `venv` is active).
 - **Validation Check:** `python src/validator.py`.
 

@@ -1,0 +1,21 @@
+#!/bin/bash
+# Portfolio Optimizer - macOS App Launcher
+# This wrapper ensures the .command script has proper permissions
+# and opens it in Terminal so the user sees the interactive prompts.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+COMMAND_FILE="$SCRIPT_DIR/Portfolio_Optimizer.command"
+
+if [ ! -f "$COMMAND_FILE" ]; then
+    osascript -e 'display alert "Portfolio Optimizer" message "Could not find Portfolio_Optimizer.command. Make sure this app is in the same folder as Portfolio_Optimizer.command." as critical'
+    exit 1
+fi
+
+# Fix permissions (handles zip downloads that strip +x)
+chmod +x "$COMMAND_FILE"
+
+# Remove quarantine attribute if present (handles Gatekeeper blocks)
+xattr -d com.apple.quarantine "$COMMAND_FILE" 2>/dev/null
+
+# Open in Terminal so the user gets the interactive prompts
+open -a Terminal "$COMMAND_FILE"

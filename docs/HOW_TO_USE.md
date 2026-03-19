@@ -48,9 +48,13 @@ Launch the Optimizer in a single click without opening a terminal or configuring
 1. Open your File Explorer and navigate to the `Portfolio_Optimizer` folder.
 2. Double-click **`Portfolio_Optimizer.bat`** (the file with the gear/window icon).
 
-**macOS / Linux:**
-1. Open your Finder and navigate to the `Portfolio_Optimizer` folder.
-2. Double-click **`Portfolio_Optimizer.command`**. Terminal will open and run the optimizer automatically.
+**macOS:**
+1. Open Finder and navigate to the `Portfolio_Optimizer` folder.
+2. Double-click **`Portfolio_Optimizer_Mac.app`**.
+   - On first launch, macOS may warn about an unidentified developer. Go to **System Settings → Privacy & Security** and click **"Open Anyway"** (one-time).
+3. Terminal will open and run the optimizer automatically.
+
+> **Note:** The `.app` wrapper automatically handles file permissions — no terminal commands required. If you prefer the command line, you can also run `./Portfolio_Optimizer.command` directly.
 
 Both launchers will automatically create a virtual environment and install all dependencies if one doesn't already exist. If a venv is already active, they skip activation entirely.
 

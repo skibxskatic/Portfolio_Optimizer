@@ -2,7 +2,7 @@
 
 Welcome! If you're wondering what exactly is happening behind the scenes when you double-click the `Portfolio_Optimizer.bat` file, this guide is for you. 
 
-We've designed this tool to act like a mathematically rigorous, entirely private, and incredibly fast financial advisor. It runs on both **Windows** (`Portfolio_Optimizer.bat`) and **macOS/Linux** (`Portfolio_Optimizer.command`). Here is a plain-English explanation of exactly how it evaluates your portfolio.
+We've designed this tool to act like a mathematically rigorous, entirely private, and incredibly fast financial advisor. It runs on both **Windows** (`Portfolio_Optimizer.bat`) and **macOS** (`Portfolio_Optimizer_Mac.app`). Here is a plain-English explanation of exactly how it evaluates your portfolio.
 
 ---
 
