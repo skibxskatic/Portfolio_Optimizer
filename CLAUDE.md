@@ -6,14 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Run the full optimizer (end-user flow):**
 ```
-# Double-click Portfolio_Optimizer.bat, or run directly:
+# Windows: Double-click Portfolio_Optimizer.bat, or run directly:
 py src/portfolio_analyzer.py
+
+# macOS/Linux: Double-click Portfolio_Optimizer.command, or run directly:
+./Portfolio_Optimizer.command
 ```
 
 **Run the PowerShell launcher (activates venv, prompts for fresh data confirmation):**
 ```powershell
 PowerShell.exe -NoProfile -ExecutionPolicy Bypass -File src\run_optimizer.ps1
 ```
+
+> Note: Both `Portfolio_Optimizer.bat` (via `run_optimizer.ps1`) and `Portfolio_Optimizer.command` auto-detect an active venv, activate an existing one, or create and initialize a new venv with all dependencies if none exists.
 
 **Run validator standalone:**
 ```

@@ -21,7 +21,8 @@ The **Portfolio Optimizer** is a local, privacy-first Python engine designed to 
 - **`src/parser.py`:** Standard brokerage CSV parser (Positions and History).
 - **`src/market_data.py`:** Fetches live pricing, yields, and expense ratios.
 - **`src/er_performance_analyzer.py`:** Diagnostic tool to quantitatively validate the 0.40% ER screening threshold against net performance tradeoffs.
-- **`Portfolio_Optimizer.bat`:** Primary user entry point.
+- **`Portfolio_Optimizer.bat`:** Primary user entry point (Windows).
+- **`Portfolio_Optimizer.command`:** macOS/Linux launcher (double-clickable equivalent to `.bat`).
 - **`src/run_optimizer.ps1`:** The PowerShell execution wrapper that handles virtual environment activation, cache setup, and launches the engine.
 
 ## Building and Running
@@ -30,14 +31,17 @@ The **Portfolio Optimizer** is a local, privacy-first Python engine designed to 
 - A virtual environment named `venv` in the root.
 
 ### Setup
+Both launchers auto-create the venv and install dependencies if missing. For manual setup:
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+pip install pandas numpy yfinance requests lxml openpyxl
 ```
 
 ### Execution
-- **Standard User:** Double-click `Portfolio_Optimizer.bat`.
+- **Windows:** Double-click `Portfolio_Optimizer.bat`.
+- **macOS/Linux:** Double-click `Portfolio_Optimizer.command` (or run `./Portfolio_Optimizer.command` from terminal).
 - **Developer Run:** `python src/portfolio_analyzer.py` (ensure `venv` is active).
 - **Validation Check:** `python src/validator.py`.
 

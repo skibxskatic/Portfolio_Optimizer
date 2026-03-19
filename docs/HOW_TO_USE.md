@@ -44,8 +44,15 @@ The Optimizer generates a comprehensive Markdown report with all findings.
 ### Option A: The One-Click Executable (Recommended)
 Launch the Optimizer in a single click without opening a terminal or configuring execution policies:
 
+**Windows:**
 1. Open your File Explorer and navigate to the `Portfolio_Optimizer` folder.
 2. Double-click **`Portfolio_Optimizer.bat`** (the file with the gear/window icon).
+
+**macOS / Linux:**
+1. Open your Finder and navigate to the `Portfolio_Optimizer` folder.
+2. Double-click **`Portfolio_Optimizer.command`**. Terminal will open and run the optimizer automatically.
+
+Both launchers will automatically create a virtual environment and install all dependencies if one doesn't already exist. If a venv is already active, they skip activation entirely.
 
 Alternatively, if you are already in the IDE terminal, you can run the PowerShell script directly:
 ```bash
