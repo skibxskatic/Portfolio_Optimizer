@@ -65,7 +65,7 @@ If you have a 401k plan, the Optimizer goes one step further: it tells you **exa
 
 **How it works:**
 
-1. **Your Investor Profile:** The Optimizer looks for a file called `investor_profile.txt` in the `Drop_Financial_Info_Here/` folder. This simple text file contains your birth year and target retirement year. If this file doesn't exist, the Optimizer uses sensible defaults and notes it in the report.
+1. **Your Investor Profile:** The Optimizer looks for a file called `investor_profile.txt` in the `Drop_Financial_Info_Here/` folder. This simple text file contains your birth year and target retirement year. We recommend completing this file for the most accurate, personalized analysis. If it doesn't exist, the Optimizer uses default assumptions and notes it in the report.
 
 2. **The Glide Path:** Based on how many years you have until retirement, the Optimizer uses a "glide path" — a well-established investment principle where younger investors hold more stocks (higher growth, more risk) and gradually shift toward bonds (lower growth, lower risk) as retirement approaches:
    - **40+ years out:** 90% stocks / 10% bonds
@@ -80,7 +80,17 @@ If you have a 401k plan, the Optimizer goes one step further: it tells you **exa
 
 5. **The Recommendation Table:** The report shows a clear table with each recommended fund, its asset class, your current percentage, the target percentage, the change needed, and a simple action word (Add, Increase, Reduce, Hold, or Remove).
 
-## 8. Saving You Taxes (Harvesting & Capital Gains)
+## 8. Age-Aware Personalization
+
+Beyond 401k allocation, the Optimizer uses your investor profile to personalize recommendations across **every** account type:
+
+- **Risk-Calibrated Scoring:** The mathematical weights used to score replacement funds shift based on how many years you have until retirement. Young investors get higher weight on growth metrics; near-retirement investors get higher weight on risk and drawdown metrics.
+- **Portfolio Risk Profile:** Section 1 of the report compares your actual equity allocation (across all accounts) to the target for your age, flagging if rebalancing is needed.
+- **Holdings Flags:** If you hold conservative funds (bonds, stable value) in a growth account like Roth IRA when you're young, or aggressive high-beta funds when you're near retirement, the report flags it in the Suggested Action column.
+- **Replacement Penalties:** Replacement fund candidates that are age-inappropriate for your Roth IRA (e.g., bonds for young investors, high-beta for near-retirement) receive a soft scoring penalty.
+- **TLH Urgency:** Tax-loss harvesting candidates are labeled with urgency levels — "High" for near-retirement investors who have a shorter window to utilize harvested losses.
+
+## 9. Saving You Taxes (Harvesting & Capital Gains)
 
 Finally, it looks at the exact day you bought every single share in your **taxable accounts**:
 * **Tax Snapshot:** At the top of the Tax Optimization section, the report shows a one-line summary: the number of positions with harvestable losses and their total estimated value, plus the number of positions with pending short-term capital gains exposure.
@@ -88,6 +98,6 @@ Finally, it looks at the exact day you bought every single share in your **taxab
 * **The "One-Year Wait" Screener:** If you bought shares less than a year ago that have gone *up* in value, selling them now will trigger massive "Short-Term Capital Gains" taxes. The Optimizer flags these shares and tells you exactly how many are safely past the 1-year mark (Long-Term Capital Gains) and how many you should wait to sell.
 * **The "De Minimis" Override:** If you have a short-term gain that is incredibly tiny (less than 1% of the value of the shares), the Optimizer will flag it as "Safe to Reallocate." The tax hit is so small that it's mathematically better to just sell it now and move the money into a better fund.
 
-## 9. The Final Report
+## 10. The Final Report
 
 The Optimizer takes all of this math, bundles it into a beautifully formatted, continuous PDF report, and automatically pops it open on your screen!

@@ -35,9 +35,33 @@ try {
     Write-Host "`n[!] CRITICAL REMINDER: Ensure you have JUST downloaded a fresh Portfolio_Positions.csv from your brokerage." -ForegroundColor Yellow
     Write-Host "    The engine ignores 'Sells' in History files and relies entirely on your Positions file for true current quantities." -ForegroundColor Yellow
     
-    Write-Host "`n[TIP] For personalized 401k allocation recommendations, create 'Drop_Financial_Info_Here\investor_profile.txt' with:" -ForegroundColor DarkCyan
-    Write-Host "       birth_year = 1985" -ForegroundColor DarkCyan
-    Write-Host "       retirement_year = 2050" -ForegroundColor DarkCyan
+    # --- Investor Profile Validation ---
+    $profilePath = Join-Path $PSScriptRoot "..\Drop_Financial_Info_Here\investor_profile.txt"
+    $profileValid = $false
+    $profileBirth = 1990
+    $profileRetire = 2057
+
+    if (Test-Path $profilePath) {
+        $profileContent = Get-Content $profilePath -ErrorAction SilentlyContinue
+        foreach ($line in $profileContent) {
+            $line = $line.Trim()
+            if ($line -match '^\s*birth_year\s*=\s*(\d{4})') { $profileBirth = [int]$Matches[1] }
+            if ($line -match '^\s*retirement_year\s*=\s*(\d{4})') { $profileRetire = [int]$Matches[1] }
+        }
+        if ($profileBirth -eq 1990 -and $profileRetire -eq 2057) {
+            Write-Host "`n[!] Investor Profile: Values match defaults (born 1990, retiring 2057)." -ForegroundColor Yellow
+            Write-Host "    If these aren't your actual values, edit 'Drop_Financial_Info_Here\investor_profile.txt'." -ForegroundColor Yellow
+        } else {
+            $yearsOut = $profileRetire - (Get-Date).Year
+            Write-Host "`n[OK] Investor Profile: Born $profileBirth, Retiring $profileRetire ($yearsOut years out)" -ForegroundColor Green
+            $profileValid = $true
+        }
+    } else {
+        Write-Host "`n[!] No investor_profile.txt found - age-aware features will use defaults (born 1990, retiring 2057)." -ForegroundColor Yellow
+        Write-Host "    For personalized scoring, create 'Drop_Financial_Info_Here\investor_profile.txt' with:" -ForegroundColor Yellow
+        Write-Host "       birth_year = 1985" -ForegroundColor Yellow
+        Write-Host "       retirement_year = 2050" -ForegroundColor Yellow
+    }
 
     Write-Host "`nPress Enter to confirm your data is fresh and begin analysis, or Ctrl+C to cancel..." -ForegroundColor White -NoNewline
     Read-Host

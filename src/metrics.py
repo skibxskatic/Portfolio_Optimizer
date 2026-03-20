@@ -434,6 +434,7 @@ def get_fund_metrics(ticker: str, account_type: str) -> Dict[str, Any]:
 
     elif account_type == "Roth IRA":
         result["sortino_ratio"] = compute_sortino_ratio(ticker, "5y")
+        result["max_drawdown"] = compute_max_drawdown(ticker, "5y")
         total_10y = compute_total_return(ticker, "10y")
         result["total_return_10y"] = total_10y
         result["total_return_10y_available"] = total_10y is not None

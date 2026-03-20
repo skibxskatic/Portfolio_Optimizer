@@ -102,6 +102,14 @@ Rather than a single global scoring formula, the engine uses **account-specific 
 *   **Tracking Error Benchmark Detection:** Tracking Error is computed against each fund's actual benchmark index, not a universal proxy. The engine uses `yfinance` fund info fields (`benchmarkTickerSymbol`, `category`) to detect the appropriate benchmark. If no benchmark can be detected, the Tracking Error metric is omitted for that fund.
 *   **Metrics Module:** All risk-adjusted metrics (Sharpe, Sortino, Max Drawdown, Tracking Error, Total Return) are computed from daily price history via `yfinance` in a dedicated `metrics.py` module. If the Yahoo Finance API omits trailing summary returns (like 3Y or 5Y returns, common for mutual funds), the module automatically falls back to downloading price history and mathematically computing the exact annualized return. This module caches historical data internally to avoid redundant API calls.
 
+#### 3e. Age-Aware Scoring & Personalization
+When an `investor_profile.txt` is present (or using defaults), the engine computes an `age_factor` (0.0 = at retirement, 1.0 = 40+ years out) and applies it across all account types:
+*   **Risk-Calibrated Weights:** Per-account scoring weights shift smoothly — young investors get higher growth emphasis, near-retirement investors get higher risk/drawdown emphasis.
+*   **Portfolio Risk Profile:** Section 1 reports aggregate equity % vs. glide-path target for the investor's age.
+*   **Holdings Flags:** Section 2 appends age-appropriate warnings (e.g., bonds in young Roth, high-beta near retirement).
+*   **Replacement Penalties:** Roth IRA replacement candidates receive a 0.85x score modifier if age-inappropriate (high-beta near retirement, or bond/stable value for young investors).
+*   **TLH Urgency:** Tax-loss harvesting priority labels (High/Normal/Low) based on age_factor, with a near-retirement alert callout.
+
 **Metric Summary:**
 
 | Metric | Individual Brokerage | Roth IRA | Employer 401k | HSA | What It Measures |
@@ -122,7 +130,7 @@ Rather than a single global scoring formula, the engine uses **account-specific 
         *   **Employer 401k:** Income/dividend-focused funds scored by Sharpe Ratio and yield consistency. Candidates constrained to the employer's plan fund menu.
         *   **HSA:** Income/dividend-focused funds scored by Sharpe Ratio. Full dynamic universe (unconstrained).
         *   **Taxable Brokerage:** Tax-efficient growth funds scored by Sharpe Ratio and low distribution yield.
-    *   **401k Plan Analysis:** When 401k data is present, the report includes a dedicated Section 5 that quarantines 401k holdings. It generates a Plan Menu Scorecard ranking every available fund in the employer plan by the engine's 401k mathematical formula, highlights explicit **Rebalance Opportunities** (top 5 unheld funds), **Underperforming Holdings** (bottom half held funds), and a **Recommended Allocation** table. The allocation engine uses a piecewise linear glide path (Vanguard-style) to compute an age-aware equity/bond target split, classifies each plan fund into 4 asset classes (US Equity, Intl Equity, Bond, Stable Value) via `classify_asset_class()`, and produces score-weighted percentage targets per fund with a 5% minimum floor. An optional `investor_profile.txt` in `Drop_Financial_Info_Here/` provides `birth_year` and `retirement_year`; defaults are used if absent.
+    *   **401k Plan Analysis:** When 401k data is present, the report includes a dedicated Section 5 that quarantines 401k holdings. It generates a Plan Menu Scorecard ranking every available fund in the employer plan by the engine's 401k mathematical formula, highlights explicit **Rebalance Opportunities** (top 5 unheld funds), **Underperforming Holdings** (bottom half held funds), and a **Recommended Allocation** table. The allocation engine uses a piecewise linear glide path (Vanguard-style) to compute an age-aware equity/bond target split, classifies each plan fund into 4 asset classes (US Equity, Intl Equity, Bond, Stable Value) via `classify_asset_class()`, and produces score-weighted percentage targets per fund with a 5% minimum floor. An `investor_profile.txt` in `Drop_Financial_Info_Here/` provides `birth_year` and `retirement_year` for age-aware scoring across all account types; defaults are used if absent.
     *   **Capital Gains Screener:** The screener MUST automatically exclude all tax-advantaged accounts (e.g., Roth IRA, 401k/HSA) since capital gains rules do not apply to them. It must only evaluate lots in Taxable Brokerage accounts and visually group the output table sorted primarily by Account Name.
     *   **Evaluation Metrics Summary:** The report MUST include a dedicated Section 6 explaining:
         *   Each evaluation metric used (Net-of-Fees Return, Sharpe Ratio, Sortino Ratio, Max Drawdown, Tracking Error, Total Return 10Y).
@@ -140,7 +148,11 @@ Rather than a single global scoring formula, the engine uses **account-specific 
         *   QQQ (high growth, high beta) → Roth IRA
         *   VTI (broad market, low yield, low beta) → Taxable Brokerage
 
-### Phase 6: Documentation & Onboarding
+### Phase 6: Zero-Config Launchers & Documentation
+*   **Non-Technical Executable Wrappers:** The engine MUST provide double-click launchers for both Windows and macOS that require zero terminal knowledge:
+    *   **Windows:** `Portfolio_Optimizer.bat` — a batch file that invokes `run_optimizer.ps1`, which auto-detects an active venv, activates an existing one, or creates and initializes a new venv with all dependencies if none exists. Prompts the user to confirm fresh data before running.
+    *   **macOS:** `Portfolio_Optimizer_Mac.app` — a macOS `.app` bundle wrapping `Portfolio_Optimizer.command` (a shell script with the same auto-venv logic). Handles file permissions so no terminal commands are required. A standalone `Portfolio_Optimizer.command` is also provided for users who prefer the command line.
+    *   Both launchers must auto-initialize the virtual environment and install all dependencies on first run, and skip activation if a venv is already active.
 *   **Living "How to Use" Guide:** A centralized guide (`docs/HOW_TO_USE.md`) defining exactly how to export CSVs from your brokerage, place them in the secure `Drop_Financial_Info_Here/` folder, trigger the interfaces, and run standalone validation.
 *   **Continuous Maintenance Clause:** Whenever workflows, paths, or execution steps change in scripts, this documentation file **MUST be updated concurrently** to ensure it remains the single source of truth for operating the Optimizer.
 

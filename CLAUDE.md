@@ -54,7 +54,7 @@ The engine follows a sequential 6-phase pipeline, all orchestrated from `src/por
 Drop_Financial_Info_Here/          ← User drops CSVs and 401k PDF here
     ├── Portfolio_Positions.csv    ← Source of truth for current quantities
     ├── Accounts_History*.csv      ← Transaction history (auto-aggregated)
-    ├── [investor_profile.txt]        ← Optional: birth_year + retirement_year for glide-path allocation
+    ├── investor_profile.txt           ← birth_year + retirement_year for age-aware scoring & glide-path allocation
     └── [401k Investment Options PDF]
 
 file_ingestor.py → parsers/ (adapter layer) → portfolio_analyzer.py
@@ -80,7 +80,7 @@ file_ingestor.py → parsers/ (adapter layer) → portfolio_analyzer.py
 | `src/parsers/principal.py` | `PrincipalAdapter` — 401k PDF/text parsing for Principal statements. |
 | `src/parsers/generic.py` | `GenericAdapter` — fuzzy column-name fallback; last in registry, always matches. |
 | `src/parsers/__init__.py` | `ADAPTER_REGISTRY` list: `[Fidelity, Schwab, Vanguard, TRowePrice, Principal, Generic]`. |
-| `src/market_data.py` | `yfinance`-based market data fetcher. Scrapes live ETF/fund universe from Yahoo Finance screener pages with fallback to a hardcoded 6-fund baseline. |
+| `src/market_data.py` | `yfinance`-based market data fetcher. Scrapes live ETF/fund universe from Yahoo Finance screener pages with fallback to a hardcoded 6-fund baseline. `KNOWN_ZERO_ER_TICKERS` allowlist (money-market + Fidelity ZERO funds) bypasses the 0.0% ER fetch-error guard. |
 | `src/metrics.py` | Computes Sharpe, Sortino, Max Drawdown, Tracking Error, Net-of-Fees returns, and `classify_asset_class()` (4-class fund taxonomy) from daily price history. Internal caching prevents redundant API calls. Falls back to computed annualized returns if Yahoo's trailing summaries are missing. |
 | `src/validator.py` | Pre-flight gate. 4 reality checks (ingestion checksum, API sanity, dynamic screener QA, asset routing validation). Aborts `portfolio_analyzer.py` on any failure. |
 | `src/er_performance_analyzer.py` | Diagnostic tool to validate the 0.40% ER screening threshold via net-return trade-off analysis. |
@@ -106,9 +106,10 @@ file_ingestor.py → parsers/ (adapter layer) → portfolio_analyzer.py
 
 **Per-Account Scoring (`score_candidate`):**
 - Taxable Brokerage: Sharpe Ratio + Net-of-Fees 5Y Return (tiebreaker: Max Drawdown, Tracking Error)
-- Roth IRA: Sortino Ratio + Net-of-Fees 5Y Return (tiebreaker: 10Y Total Return)
-- HSA: Sortino Ratio + Net-of-Fees 5Y Return (tiebreaker: 10Y Total Return) — same growth tier as Roth IRA
+- Roth IRA: Sortino Ratio + Net-of-Fees 5Y Return + Max Drawdown (tiebreaker: 10Y Total Return)
+- HSA: Same as Roth IRA — same growth tier
 - 401k: Sharpe Ratio + Net-of-Fees 5Y Return (tiebreaker: Tracking Error)
+- All weights shift smoothly via `age_factor` when `years_to_retirement` is provided
 
 **Key constants:**
 - `DE_MINIMIS_GAIN_PCT = 0.01` — STCG gains below 1% of lot value are flagged safe to reallocate
@@ -118,6 +119,15 @@ file_ingestor.py → parsers/ (adapter layer) → portfolio_analyzer.py
 - `EQUITY_SPLIT` — within equity allocation: 70% US Equity, 30% Intl Equity
 - `DEFAULT_BIRTH_YEAR = 1990`, `DEFAULT_RETIREMENT_YEAR = 2057` — used when `investor_profile.txt` is absent
 - `MIN_ALLOCATION_PCT = 5` — minimum per-fund allocation floor in Section 5e
+
+**Age-Aware Engine:**
+- `compute_age_factor(years_to_retirement)` — returns 0.0 (at retirement) to 1.0 (40+ years out); linear interpolation
+- `score_candidate()` accepts optional `years_to_retirement` — shifts per-account weights smoothly via `age_factor`
+- Section 1: Portfolio Risk Profile callout (actual equity % vs glide-path target)
+- Section 2: `get_age_flag()` appends italic age-appropriate warnings to Suggested Action column
+- Section 3: TLH urgency labels (High/Normal/Low) based on age_factor; near-retirement alert callout
+- Section 4: 0.85x penalty for age-inappropriate Roth IRA candidates
+- Section 6: Age-Aware Scoring Adjustments sub-section explains weight shifts
 
 **401k Allocation Engine (Section 5e):**
 - `load_investor_profile(data_dir)` — parses `investor_profile.txt` for `birth_year` and `retirement_year`; returns defaults if missing

@@ -151,38 +151,75 @@ def compute_target_allocation(years_to_retirement: int) -> dict:
     }
 
 
+def compute_age_factor(years_to_retirement: int) -> float:
+    """0.0 = at retirement, 1.0 = 40+ years out. Linear interpolation."""
+    return max(0.0, min(1.0, years_to_retirement / 40.0))
+
+
 # --- Scoring ---
 
-def score_candidate(ticker: str, data: dict, routing_bucket: str) -> dict:
+def score_candidate(ticker: str, data: dict, routing_bucket: str, years_to_retirement: int = None) -> dict:
     """
     Scores a candidate fund using per-account metrics.
+    When years_to_retirement is provided, weights shift based on age_factor
+    (0.0 = at retirement, 1.0 = 40+ years out).
     Returns the candidate dict augmented with 'score' and metric values.
     """
     fund_metrics = metrics.get_fund_metrics(ticker, routing_bucket)
     nof = fund_metrics.get("net_of_fees_5y") or 0.0
 
+    af = compute_age_factor(years_to_retirement) if years_to_retirement is not None else None
+
     if routing_bucket == "Taxable Brokerage":
         sharpe = fund_metrics.get("sharpe_ratio") or 0.0
         max_dd = fund_metrics.get("max_drawdown") or 0.0
         yld = data.get("yield", 0.0) or 0.0
-        # Lower yield = better for taxable (less tax drag)
         low_yield_bonus = max(0, (0.02 - yld) * 100)  # up to 2 points
-        score = (nof * 40) + (sharpe * 30) + (low_yield_bonus * 20) + ((1 + max_dd) * 10)
+
+        if af is not None:
+            # Max Drawdown weight: 5 (young) → 15 (near-retirement)
+            w_dd = 5 + (1 - af) * 10
+            # Net-of-Fees weight: 45 (young) → 35 (near-retirement)
+            w_nof = 45 - (1 - af) * 10
+            score = (nof * w_nof) + (sharpe * 30) + (low_yield_bonus * 20) + ((1 + max_dd) * w_dd)
+        else:
+            score = (nof * 40) + (sharpe * 30) + (low_yield_bonus * 20) + ((1 + max_dd) * 10)
         data.update({"sharpe_ratio": sharpe, "max_drawdown": max_dd})
 
     elif routing_bucket == "Roth IRA":
         sortino = fund_metrics.get("sortino_ratio") or 0.0
+        max_dd = fund_metrics.get("max_drawdown") or 0.0
         total_10y = fund_metrics.get("total_return_10y")
-        t10_score = (total_10y * 30) if total_10y is not None else 0.0
-        score = (nof * 35) + (sortino * 35) + t10_score
-        data.update({"sortino_ratio": sortino, "total_return_10y": total_10y})
+
+        if af is not None:
+            # Sortino: 40 (young) → 25 (near-retirement)
+            w_sortino = 25 + af * 15
+            # Net-of-Fees: 30 (young) → 40 (near-retirement)
+            w_nof = 40 - af * 10
+            # 10Y Return: 30 (young) → 0 (near-retirement)
+            w_10y = af * 30
+            # Max Drawdown: 0 (young) → 10 (near-retirement)
+            w_dd = (1 - af) * 10
+            t10_score = (total_10y * w_10y) if total_10y is not None else 0.0
+            score = (nof * w_nof) + (sortino * w_sortino) + t10_score + ((1 + max_dd) * w_dd)
+        else:
+            t10_score = (total_10y * 30) if total_10y is not None else 0.0
+            score = (nof * 35) + (sortino * 35) + t10_score
+        data.update({"sortino_ratio": sortino, "max_drawdown": max_dd, "total_return_10y": total_10y})
 
     elif routing_bucket == "Tax-Deferred":
         sharpe = fund_metrics.get("sharpe_ratio") or 0.0
         te = fund_metrics.get("tracking_error")
-        # Lower tracking error = better (fund tracks its index well)
         te_penalty = max(0, 1 - (te * 10)) if te is not None else 0.5
-        score = (nof * 35) + (sharpe * 35) + (te_penalty * 10)
+
+        if af is not None:
+            # Net-of-Fees: 40 (young) → 25 (near-retirement)
+            w_nof = 25 + af * 15
+            # Sharpe: 30 (young) → 45 (near-retirement)
+            w_sharpe = 45 - af * 15
+            score = (nof * w_nof) + (sharpe * w_sharpe) + (te_penalty * 10)
+        else:
+            score = (nof * 35) + (sharpe * 35) + (te_penalty * 10)
         data.update({"sharpe_ratio": sharpe, "tracking_error": te})
 
     else:
@@ -285,6 +322,7 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
     birth_year, retirement_year, using_profile_defaults = load_investor_profile(data_dir)
     current_year = pd.Timestamp.now().year
     years_to_retirement = retirement_year - current_year
+    age_factor = compute_age_factor(years_to_retirement)
     target_alloc = compute_target_allocation(years_to_retirement)
     if using_profile_defaults:
         print(f"ℹ️  No investor_profile.txt found — using defaults (born {birth_year}, retiring {retirement_year}, {years_to_retirement} yrs out).")
@@ -355,6 +393,26 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
             f.write("  - ✅ *Excellent: Your portfolio fees are highly optimized.*\n")
         f.write(f"- **Risk-Free Rate (13-Week T-Bill):** `{rf*100:.2f}%` *(fetched live)*\n")
 
+        # Portfolio Risk Profile — aggregate equity % vs glide-path target
+        equity_value = 0.0
+        total_value_for_risk = 0.0
+        for _, row in df.iterrows():
+            sym = row.get('Symbol', '')
+            val = row.get('Current Value', 0) or 0
+            if pd.isna(sym) or sym == 'CORE' or str(sym).endswith("XX"):
+                continue
+            total_value_for_risk += val
+            ac = metadata.get(sym, {}).get('asset_class', 'US Equity')
+            if ac in ("US Equity", "Intl Equity"):
+                equity_value += val
+        portfolio_equity_pct = (equity_value / total_value_for_risk * 100) if total_value_for_risk > 0 else 0
+        target_equity_pct = target_alloc["US Equity"] + target_alloc["Intl Equity"]
+        risk_status = "Aligned" if abs(portfolio_equity_pct - target_equity_pct) <= 10 else "Rebalance needed"
+        risk_icon = "✅" if risk_status == "Aligned" else "⚠️"
+        f.write(f"\n> **Portfolio Risk Profile:** Your portfolio is **{portfolio_equity_pct:.0f}% equity** — target for your age is **{target_equity_pct:.0f}%**. {risk_icon} *{risk_status}*\n")
+        if using_profile_defaults:
+            f.write(f"> *Target based on default profile. Create `investor_profile.txt` for a personalized target.*\n")
+
         # --- Section 2: Asset Holding Breakdown ---
         f.write("\n## 2. Asset Holding Breakdown\n")
 
@@ -372,6 +430,22 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
                     return f"**Evaluate** (ER {er:.2f}%, Net 5Y: {nof*100:.1f}%)"
                 return "**Replace (High ER)**. See *Alternatives* below."
             return "Keep"
+
+        def get_age_flag(row, age_factor, metadata):
+            """Returns italic age-appropriate flag text, or empty string."""
+            sym = row.get('Symbol', '')
+            if pd.isna(sym) or sym == 'CORE' or str(sym).endswith("XX"):
+                return ""
+            account_type = resolve_account_type(row.get('Account Name', ''))
+            ac = metadata.get(sym, {}).get('asset_class', 'US Equity')
+            beta = metadata.get(sym, {}).get('beta', 1.0) or 1.0
+            # Young investor + Bond/Stable Value in Roth/HSA
+            if age_factor > 0.7 and ac in ("Bond", "Stable Value") and account_type in ("Roth IRA", "HSA"):
+                return " *— Consider higher-growth funds for your horizon*"
+            # Near-retirement + high-beta in Taxable/Roth
+            if age_factor < 0.3 and beta > 1.2 and account_type in ("Taxable Brokerage", "Roth IRA"):
+                return " *— Consider lower-volatility for your horizon*"
+            return ""
 
         df['Action'] = df.apply(get_action_for_row, axis=1)
         df['Account Name'] = df['Account Name'].fillna('Unknown Account')
@@ -403,7 +477,8 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
                 action = row['Action']
                 if action == "Core Cash Position":
                     er = 0.0
-                er_str = f"{er:.3f}%" if er is not None else "N/A"
+                action += get_age_flag(row, age_factor, metadata)
+                er_str = f"{er:.3f}%" if pd.notna(er) else "N/A"
                 f.write(f"| {sym} | {account_name} | {desc} | {er_str} | {action} |\n")
 
         # --- Section 3: Tax Optimization ---
@@ -452,14 +527,26 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         if tlh_agg:
             f.write("The following lots are currently held at a loss. Selling these will harvest the loss to offset your other capital gains (up to $3,000 against ordinary income).\n\n")
             f.write("*401k, Roth IRA, and HSA accounts are excluded — losses in tax-advantaged accounts have no tax benefit.*\n\n")
+
+            if age_factor < 0.3:
+                f.write("> ⚠️ **Near-Retirement Alert:** Shorter window to utilize harvested losses — prioritize harvesting now.\n\n")
+
             f.write("| Priority | Account | Symbol | Description | Tax Category | Est. Loss ($) | Underwater Lots | Wash Sale Risk |\n")
             f.write("|---|---|---|---|---|---|---|---|\n")
+
+            # Determine urgency label based on age_factor
+            if age_factor < 0.3:
+                urgency = "High"
+            elif age_factor <= 0.6:
+                urgency = "Normal"
+            else:
+                urgency = "Low"
 
             for rank, row in enumerate(tlh_agg, 1):
                 risk = detect_wash_sale_risk(df, row['Symbol'])
                 risk_str = "⚠️ YES (Cross-Account)" if risk else "No"
                 est_loss = row['Est_Loss']
-                f.write(f"| {rank} | {row['Account Name']} | **{row['Symbol']}** | {row['Description']} | {row['Tax_Category']} | (${est_loss:,.0f}) | {row['Lot_Count']} lot(s) | {risk_str} |\n")
+                f.write(f"| {rank} ({urgency}) | {row['Account Name']} | **{row['Symbol']}** | {row['Description']} | {row['Tax_Category']} | (${est_loss:,.0f}) | {row['Lot_Count']} lot(s) | {risk_str} |\n")
         else:
             f.write("*Amazing! No assets are currently held at a loss in your taxable accounts. No TLH opportunities exist right now.*\n")
             f.write("\n*401k, Roth IRA, and HSA accounts are excluded — losses in tax-advantaged accounts have no tax benefit.*\n")
@@ -585,7 +672,16 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
             }
 
             # Score per-account
-            cand = score_candidate(ticker, cand, routing)
+            cand = score_candidate(ticker, cand, routing, years_to_retirement=years_to_retirement)
+
+            # Age-appropriateness penalty for Roth IRA candidates
+            if routing == "Roth IRA":
+                cand_ac = candidate_data.get(ticker, {}).get("asset_class", "US Equity")
+                cand_beta = candidate_data.get(ticker, {}).get("beta", 1.0) or 1.0
+                if age_factor < 0.3 and cand_beta > 1.2:
+                    cand["score"] = round(cand["score"] * 0.85, 4)
+                elif age_factor > 0.7 and cand_ac in ("Bond", "Stable Value"):
+                    cand["score"] = round(cand["score"] * 0.85, 4)
 
             # Flag funds with < 3 years of price history — scored on limited data
             history_days = metrics.get_history_days(ticker)
@@ -784,7 +880,7 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
                     "yield": yld, "1y_return": r1, "3y_return": r3,
                     "5y_return": r5, "routing": "Tax-Deferred",
                 }
-                cand = score_candidate(ticker, cand, "Tax-Deferred")
+                cand = score_candidate(ticker, cand, "Tax-Deferred", years_to_retirement=years_to_retirement)
                 all_plan_scored.append(cand)
 
             all_plan_scored.sort(key=lambda x: x["score"], reverse=True)
@@ -963,7 +1059,7 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         f.write("| **Net-of-Fees Return (5Y)** | All accounts | Annualized return after subtracting expense ratio | Higher is better. The single most important number — what you actually earned. |\n")
         f.write("| **Sharpe Ratio** | Taxable, 401k, HSA | Return per unit of *total* volatility (risk-adjusted) | > 1.0 is good, > 2.0 is excellent. Higher means better risk-adjusted returns. |\n")
         f.write("| **Sortino Ratio** | Roth IRA | Return per unit of *downside* volatility | Like Sharpe but ignores upside swings. > 1.0 is good. Ideal for growth funds. |\n")
-        f.write("| **Max Drawdown** | Taxable | Worst peak-to-trough decline over 5 years | A less negative number is better. -20% means the fund dropped 20% at its worst point. |\n")
+        f.write("| **Max Drawdown** | Taxable, Roth IRA | Worst peak-to-trough decline over 5 years | A less negative number is better. -20% means the fund dropped 20% at its worst point. |\n")
         f.write("| **Tracking Error** | Taxable, 401k, HSA | How closely a fund follows its benchmark index | Lower is better for index funds. High TE means the fund deviates from what it claims to track. |\n")
         f.write("| **Total Return (10Y)** | Roth IRA | Cumulative total return over 10 years | Shows long-term compounding power. Marked 'Insufficient History' if fund is < 10 years old. |\n")
         f.write(f"\n*Risk-free rate used for Sharpe/Sortino: **{rf*100:.2f}%** (13-week T-Bill, fetched live)*\n")
@@ -973,6 +1069,16 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         f.write("- **Roth IRA:** Maximizes total return using Sortino (ignores upside volatility). 10Y track record validates durable compounding. This is your most valuable tax shelter — put your biggest growers here.\n")
         f.write("- **Employer 401k:** Balances income generation with consistency (Sharpe). Tracking Error ensures index fund fidelity. Constrained to your employer's plan menu. Tax-deferred, so dividends compound without annual drag.\n")
         f.write("- **HSA:** Same scoring model as Roth IRA (Sortino + Net-of-Fees 5Y + 10Y Total Return). HSA's triple tax advantage makes long-term compounding the optimal strategy — not income generation. Full dynamic universe access, no plan-menu constraint.\n")
+
+        f.write("\n### Age-Aware Scoring Adjustments\n\n")
+        if using_profile_defaults:
+            f.write(f"*Using default investor profile (born {birth_year}, retiring {retirement_year}). Create `investor_profile.txt` to personalize.*\n\n")
+        else:
+            f.write(f"*Investor profile: born {birth_year}, retiring {retirement_year} ({years_to_retirement} years to retirement, age factor: {age_factor:.2f}).*\n\n")
+        f.write("Scoring weights shift smoothly based on your time horizon:\n")
+        f.write("- **Young investors (40+ yrs out):** Higher weight on growth metrics (Net-of-Fees, Sortino, 10Y Return). Lower weight on defensive metrics (Max Drawdown).\n")
+        f.write("- **Near-retirement (< 12 yrs out):** Higher weight on risk metrics (Sharpe, Max Drawdown). Lower weight on long-term total return. TLH urgency elevated.\n")
+        f.write("- **Replacement candidates** receive a soft penalty (0.85x) if age-inappropriate for Roth IRA (e.g., bonds for young investors, high-beta for near-retirement).\n")
 
         markdown_content = f.getvalue()
 

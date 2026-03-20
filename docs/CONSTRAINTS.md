@@ -46,8 +46,8 @@
 ## ~~[CORRECTNESS-2] SPYM Expense Ratio — Data Fidelity Error~~ — ✅ COMPLETE
 
 **Implemented:**
-- Added `MONEY_MARKET_TICKERS = {"FDRXX", "SPAXX", "FDLXX", "VMFXX", "SWVXX"}` constant to `src/market_data.py`.
-- ER guard: if `er_pct == 0.0` and ticker not in `MONEY_MARKET_TICKERS`, ER is set to `None` (fetch error), not silently left as 0.0.
+- Added `KNOWN_ZERO_ER_TICKERS` constant to `src/market_data.py` (money-market funds + Fidelity ZERO family).
+- ER guard: if `er_pct == 0.0` and ticker not in `KNOWN_ZERO_ER_TICKERS`, ER is set to `None` (fetch error), not silently left as 0.0.
 - Exception handler also sets `expense_ratio_pct = None` on full fetch failure.
 - `src/portfolio_analyzer.py` weighted-average ER now filters via `df[df['Expense Ratio'].notna()]` with proper weight renormalization over non-null positions only.
 - `src/validator.py` SPY/SCHD ER checks updated to handle `None` (flags as fetch error and fails the check).
