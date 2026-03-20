@@ -54,6 +54,7 @@ The engine follows a sequential 6-phase pipeline, all orchestrated from `src/por
 Drop_Financial_Info_Here/          ← User drops CSVs and 401k PDF here
     ├── Portfolio_Positions.csv    ← Source of truth for current quantities
     ├── Accounts_History*.csv      ← Transaction history (auto-aggregated)
+    ├── [investor_profile.txt]        ← Optional: birth_year + retirement_year for glide-path allocation
     └── [401k Investment Options PDF]
 
 file_ingestor.py → parsers/ (adapter layer) → portfolio_analyzer.py
@@ -80,7 +81,7 @@ file_ingestor.py → parsers/ (adapter layer) → portfolio_analyzer.py
 | `src/parsers/generic.py` | `GenericAdapter` — fuzzy column-name fallback; last in registry, always matches. |
 | `src/parsers/__init__.py` | `ADAPTER_REGISTRY` list: `[Fidelity, Schwab, Vanguard, TRowePrice, Principal, Generic]`. |
 | `src/market_data.py` | `yfinance`-based market data fetcher. Scrapes live ETF/fund universe from Yahoo Finance screener pages with fallback to a hardcoded 6-fund baseline. |
-| `src/metrics.py` | Computes Sharpe, Sortino, Max Drawdown, Tracking Error, and Net-of-Fees returns from daily price history. Internal caching prevents redundant API calls. Falls back to computed annualized returns if Yahoo's trailing summaries are missing. |
+| `src/metrics.py` | Computes Sharpe, Sortino, Max Drawdown, Tracking Error, Net-of-Fees returns, and `classify_asset_class()` (4-class fund taxonomy) from daily price history. Internal caching prevents redundant API calls. Falls back to computed annualized returns if Yahoo's trailing summaries are missing. |
 | `src/validator.py` | Pre-flight gate. 4 reality checks (ingestion checksum, API sanity, dynamic screener QA, asset routing validation). Aborts `portfolio_analyzer.py` on any failure. |
 | `src/er_performance_analyzer.py` | Diagnostic tool to validate the 0.40% ER screening threshold via net-return trade-off analysis. |
 
@@ -101,6 +102,7 @@ file_ingestor.py → parsers/ (adapter layer) → portfolio_analyzer.py
 - `INDIVIDUAL`, `Melissa Investments` → Taxable Brokerage
 - `ROTH IRA` → Roth IRA
 - `Health Savings Account` → HSA
+- `401k` → Employer 401k
 
 **Per-Account Scoring (`score_candidate`):**
 - Taxable Brokerage: Sharpe Ratio + Net-of-Fees 5Y Return (tiebreaker: Max Drawdown, Tracking Error)
@@ -112,6 +114,16 @@ file_ingestor.py → parsers/ (adapter layer) → portfolio_analyzer.py
 - `DE_MINIMIS_GAIN_PCT = 0.01` — STCG gains below 1% of lot value are flagged safe to reallocate
 - `SUBSTANTIALLY_IDENTICAL_MAP` — maps tickers to groups for wash-sale cross-account detection
 - `ACCOUNT_TYPE_MAP` — CSV account name → routing bucket
+- `GLIDE_PATH` — piecewise linear equity/bond curve: `[(40, 0.90), (25, 0.80), (10, 0.60), (0, 0.50), (-7, 0.30)]`
+- `EQUITY_SPLIT` — within equity allocation: 70% US Equity, 30% Intl Equity
+- `DEFAULT_BIRTH_YEAR = 1990`, `DEFAULT_RETIREMENT_YEAR = 2057` — used when `investor_profile.txt` is absent
+- `MIN_ALLOCATION_PCT = 5` — minimum per-fund allocation floor in Section 5e
+
+**401k Allocation Engine (Section 5e):**
+- `load_investor_profile(data_dir)` — parses `investor_profile.txt` for `birth_year` and `retirement_year`; returns defaults if missing
+- `compute_target_allocation(years_to_retirement)` — interpolates glide path → `{US Equity, Intl Equity, Bond, Stable Value}` percentages summing to 100
+- `classify_asset_class(ticker)` (in `metrics.py`) — classifies funds into 4 classes via yfinance `category` + fund name keywords
+- Section 5e renders a recommended allocation table with Current %, Target %, Change, and Action columns
 
 ### Known Open Constraints (`docs/CONSTRAINTS.md`)
 

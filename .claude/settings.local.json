@@ -25,7 +25,8 @@
       "Bash(cd \"E:\\\\GenAI_Antigravity_Projects\\\\02_Active_Projects\\\\Portfolio_Optimizer\\\\src\" && py -X utf8 test_tlh_screener.py 2>&1)",
       "Bash(cd \"E:\\\\GenAI_Antigravity_Projects\\\\02_Active_Projects\\\\Portfolio_Optimizer\\\\src\" && py -X utf8 test_pdf_format.py 2>&1)",
       "Bash(cd \"E:\\\\GenAI_Antigravity_Projects\\\\02_Active_Projects\\\\Portfolio_Optimizer\" && venv\\\\Scripts\\\\python.exe -X utf8 src\\\\test_pdf_format.py 2>&1)",
-      "Bash(cd \"E:/GenAI_Antigravity_Projects/02_Active_Projects/Portfolio_Optimizer\" && \"venv/Scripts/python.exe\" -X utf8 src/test_pdf_format.py 2>&1)"
+      "Bash(cd \"E:/GenAI_Antigravity_Projects/02_Active_Projects/Portfolio_Optimizer\" && \"venv/Scripts/python.exe\" -X utf8 src/test_pdf_format.py 2>&1)",
+      "Bash(claude doctor:*)"
     ]
   }
 }

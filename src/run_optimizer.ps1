@@ -35,6 +35,10 @@ try {
     Write-Host "`n[!] CRITICAL REMINDER: Ensure you have JUST downloaded a fresh Portfolio_Positions.csv from your brokerage." -ForegroundColor Yellow
     Write-Host "    The engine ignores 'Sells' in History files and relies entirely on your Positions file for true current quantities." -ForegroundColor Yellow
     
+    Write-Host "`n[TIP] For personalized 401k allocation recommendations, create 'Drop_Financial_Info_Here\investor_profile.txt' with:" -ForegroundColor DarkCyan
+    Write-Host "       birth_year = 1985" -ForegroundColor DarkCyan
+    Write-Host "       retirement_year = 2050" -ForegroundColor DarkCyan
+
     Write-Host "`nPress Enter to confirm your data is fresh and begin analysis, or Ctrl+C to cancel..." -ForegroundColor White -NoNewline
     Read-Host
     

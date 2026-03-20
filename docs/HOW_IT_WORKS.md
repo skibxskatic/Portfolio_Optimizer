@@ -29,9 +29,11 @@ Not all investment accounts are taxed the same way. The Optimizer uses a **4-Buc
 
 ## 4. Grading Your Current Funds
 
-The Optimizer looks at every fund in your portfolio and asks two questions:
+The report's **Asset Holding Breakdown** groups your funds by account type — Taxable Brokerage, Roth IRA, HSA, and Employer 401k — each under its own sub-header. For each non-401k fund, the Optimizer asks two questions:
 1. **Are you overpaying for this?** It flags any fund that charges you more than 0.40% a year in fees (the "Expense Ratio").
 2. **Is it worth the fee?** It calculates the **Net-of-Fees Return** over the last 5 years. If you are paying a high fee, but the fund is actually making you *more* money than the cheaper alternatives even after the fee is subtracted, the Optimizer will happily tell you to "Keep" it. It only tells you to "Evaluate" or "Replace" a fund if it is mathematically underperforming cheaper options.
+
+Your 401k holdings are shown as a summary with a pointer to the dedicated **401k Plan Analysis** section, where they receive full scoring, rebalance recommendations, and underperformance flags.
 
 ## 5. Finding Replacements
 
@@ -57,7 +59,28 @@ If you drop your 401k **Investment Options PDF** (after extracting the text) int
 
 This means the 401k analysis section in your report gives you a complete, personalized scorecard of your specific employer plan.
 
-## 7. Saving You Taxes (Harvesting & Capital Gains)
+## 7. Age-Aware 401k Allocation Recommendations
+
+If you have a 401k plan, the Optimizer goes one step further: it tells you **exactly what percentage to put in each fund** based on how close you are to retirement.
+
+**How it works:**
+
+1. **Your Investor Profile:** The Optimizer looks for a file called `investor_profile.txt` in the `Drop_Financial_Info_Here/` folder. This simple text file contains your birth year and target retirement year. If this file doesn't exist, the Optimizer uses sensible defaults and notes it in the report.
+
+2. **The Glide Path:** Based on how many years you have until retirement, the Optimizer uses a "glide path" — a well-established investment principle where younger investors hold more stocks (higher growth, more risk) and gradually shift toward bonds (lower growth, lower risk) as retirement approaches:
+   - **40+ years out:** 90% stocks / 10% bonds
+   - **25 years out:** 80% stocks / 20% bonds
+   - **10 years out:** 60% stocks / 40% bonds
+   - **At retirement:** 50% stocks / 50% bonds
+   - **7 years past retirement:** 30% stocks / 70% bonds
+
+3. **Fund Classification:** The Optimizer automatically categorizes every fund in your employer's plan into one of four asset classes: US Equity, International Equity, Bonds, or Stable Value. It does this using the fund's official category data from Yahoo Finance.
+
+4. **Score-Weighted Allocation:** Within each asset class, the top-scoring funds (from the Plan Menu Scorecard) receive a larger share of the allocation. Every recommended fund gets at least a 5% minimum allocation to ensure meaningful diversification.
+
+5. **The Recommendation Table:** The report shows a clear table with each recommended fund, its asset class, your current percentage, the target percentage, the change needed, and a simple action word (Add, Increase, Reduce, Hold, or Remove).
+
+## 8. Saving You Taxes (Harvesting & Capital Gains)
 
 Finally, it looks at the exact day you bought every single share in your **taxable accounts**:
 * **Tax Snapshot:** At the top of the Tax Optimization section, the report shows a one-line summary: the number of positions with harvestable losses and their total estimated value, plus the number of positions with pending short-term capital gains exposure.
@@ -65,6 +88,6 @@ Finally, it looks at the exact day you bought every single share in your **taxab
 * **The "One-Year Wait" Screener:** If you bought shares less than a year ago that have gone *up* in value, selling them now will trigger massive "Short-Term Capital Gains" taxes. The Optimizer flags these shares and tells you exactly how many are safely past the 1-year mark (Long-Term Capital Gains) and how many you should wait to sell.
 * **The "De Minimis" Override:** If you have a short-term gain that is incredibly tiny (less than 1% of the value of the shares), the Optimizer will flag it as "Safe to Reallocate." The tax hit is so small that it's mathematically better to just sell it now and move the money into a better fund.
 
-## 8. The Final Report
+## 9. The Final Report
 
 The Optimizer takes all of this math, bundles it into a beautifully formatted, continuous PDF report, and automatically pops it open on your screen!

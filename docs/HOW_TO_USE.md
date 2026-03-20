@@ -31,6 +31,17 @@ The engine supports **Fidelity, Schwab, Vanguard, T. Rowe Price, and Principal**
 
 > **Note:** The 401k parser supports PDF files directly. The engine auto-detects T. Rowe Price and Principal statement formats in addition to Fidelity.
 
+### Investor Profile (Optional — for 401k Allocation Recommendations)
+
+To receive personalized 401k allocation recommendations based on your age and retirement timeline, create a plain text file called `investor_profile.txt` in the `Drop_Financial_Info_Here/` folder:
+
+```
+birth_year = 1985
+retirement_year = 2050
+```
+
+> **Note:** If this file is absent, the Optimizer uses default assumptions (born 1990, retiring 2057) and notes it in the report. You can update this file at any time — the Optimizer reads it fresh each run.
+
 ## 2. Place Your Data in the Project
 For the privacy and security of your financial data, the downloaded files MUST be placed in the local `Drop_Financial_Info_Here/` folder. This folder is explicitly ignored by version control (Git) so your balances will never be uploaded to the cloud.
 
@@ -77,7 +88,7 @@ py src\portfolio_analyzer.py
 The report contains:
 
 1. **High-Level Metrics** — Weighted average expense ratio and live risk-free rate.
-2. **Asset Holding Breakdown** — Every position grouped by account type (Taxable, Roth IRA, Employer 401k, HSA) with suggested actions.
+2. **Asset Holding Breakdown** — Positions grouped under sub-headers by account type (Taxable Brokerage, Roth IRA, HSA) with suggested actions. 401k holdings are shown as a summary with a pointer to Section 5.
 3. **Tax Optimization** — Tax-loss harvesting candidates, capital gains screener, and de minimis override flags.
 4. **Recommended Replacements** — Four separate tables:
    - 🚀 **Roth IRA** — Maximum growth funds (scored by Sortino Ratio + Net-of-Fees 5Y + 10Y Total Return)
@@ -85,7 +96,7 @@ The report contains:
    - 🏥 **HSA** — Maximum growth, full universe (scored by Sortino Ratio + Net-of-Fees 5Y + 10Y Total Return — same tier as Roth IRA)
    - 🏦 **Taxable Brokerage** — Tax-efficient growth funds (scored by Sharpe + low yield)
    - Each table may include an **"Emerging Funds"** sub-section for funds with < 3 years of history, labeled `⚠️ < 3Y History`.
-5. **401k Plan Analysis** *(If 401k PDF is provided)* — Dedicated scorecard ranking every fund in your employer's plan, highlighting Rebalance Opportunities and Underperforming Holdings.
+5. **401k Plan Analysis** *(If 401k PDF is provided)* — Dedicated scorecard ranking every fund in your employer's plan, highlighting Rebalance Opportunities, Underperforming Holdings, and an age-aware **Recommended Allocation** table with target percentages based on your glide-path profile.
 6. **Evaluation Metrics Summary** — Explains each metric, why it's used for each account type, and how to interpret scores.
 
 ## 5. Understanding the Pre-Flight QA Checks

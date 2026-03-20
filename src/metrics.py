@@ -238,6 +238,49 @@ def detect_benchmark(ticker: str) -> Optional[str]:
     return None
 
 
+def classify_asset_class(ticker: str) -> str:
+    """
+    Classifies a fund into one of 4 broad asset classes using yfinance category
+    and fund name keywords: US Equity, Intl Equity, Bond, Stable Value.
+    Falls back to fund name heuristics, then defaults to US Equity.
+    """
+    info = _get_ticker_info(ticker)
+    category = (info.get("category") or "").lower()
+    fund_name = (info.get("shortName") or info.get("longName") or "").lower()
+
+    # Check category first (most reliable)
+    if category:
+        # Stable Value / Money Market
+        if any(k in category for k in ["money market", "stable value", "ultra-short", "ultrashort"]):
+            return "Stable Value"
+        # Bond / Fixed Income
+        if any(k in category for k in ["bond", "fixed income", "income", "intermediate",
+                                        "government", "treasury", "inflation", "high yield"]):
+            return "Bond"
+        # International Equity
+        if any(k in category for k in ["foreign", "international", "world", "global",
+                                        "emerging", "europe", "pacific"]):
+            return "Intl Equity"
+        # US Equity (large, mid, small, sector, etc.)
+        if any(k in category for k in ["large", "mid", "small", "s&p", "nasdaq",
+                                        "technology", "growth", "value", "blend"]):
+            return "US Equity"
+
+    # Fallback: fund name keywords
+    if fund_name:
+        if any(k in fund_name for k in ["money market", "stable value", "short-term",
+                                         "ultra-short", "prime"]):
+            return "Stable Value"
+        if any(k in fund_name for k in ["bond", "fixed income", "income fund",
+                                         "treasury", "aggregate", "inflation"]):
+            return "Bond"
+        if any(k in fund_name for k in ["international", "foreign", "world", "global",
+                                         "emerging", "europe", "pacific", "intl"]):
+            return "Intl Equity"
+
+    return "US Equity"
+
+
 def compute_tracking_error(ticker: str, benchmark: Optional[str] = None, period: str = "5y") -> Optional[float]:
     """
     Computes the annualized Tracking Error vs. benchmark.

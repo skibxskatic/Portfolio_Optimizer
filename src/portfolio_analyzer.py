@@ -18,6 +18,7 @@ ACCOUNT_TYPE_MAP = {
     "Melissa Investments": "Taxable Brokerage",
     "ROTH IRA": "Roth IRA",
     "Health Savings Account": "HSA",
+    "401k": "Employer 401k",
 }
 
 SUBSTANTIALLY_IDENTICAL_MAP = {
@@ -45,6 +46,19 @@ def detect_wash_sale_risk(main_df: pd.DataFrame, candidate_symbol: str) -> bool:
 
 DE_MINIMIS_GAIN_PCT = 0.01  # 1% of lot value — gains below this are safe to reallocate
 
+# --- 401k Glide Path Constants ---
+GLIDE_PATH = [
+    (40, 0.90),  # 40+ yrs out: 90% equity
+    (25, 0.80),  # 25 yrs: 80%
+    (10, 0.60),  # 10 yrs: 60%
+    (0,  0.50),  # At retirement: 50%
+    (-7, 0.30),  # 7 yrs past: 30%
+]
+EQUITY_SPLIT = {"US Equity": 0.70, "Intl Equity": 0.30}
+DEFAULT_BIRTH_YEAR = 1990
+DEFAULT_RETIREMENT_YEAR = 2057
+MIN_ALLOCATION_PCT = 5
+
 # --- Asset Routing ---
 
 def classify_routing_bucket(yld: float, beta: float) -> str:
@@ -64,6 +78,77 @@ def classify_routing_bucket(yld: float, beta: float) -> str:
 def resolve_account_type(account_name: str) -> str:
     """Maps a Fidelity CSV Account Name to a routing bucket."""
     return ACCOUNT_TYPE_MAP.get(account_name, "Taxable Brokerage")
+
+
+def load_investor_profile(data_dir: Path) -> tuple:
+    """
+    Parses investor_profile.txt from data_dir for birth_year and retirement_year.
+    Returns (birth_year, retirement_year, using_defaults) tuple.
+    Falls back to defaults if file is missing or malformed.
+    """
+    profile_path = data_dir / "investor_profile.txt"
+    birth_year = DEFAULT_BIRTH_YEAR
+    retirement_year = DEFAULT_RETIREMENT_YEAR
+    using_defaults = True
+
+    if profile_path.exists():
+        try:
+            text = profile_path.read_text(encoding="utf-8")
+            for line in text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, val = line.split("=", 1)
+                    key = key.strip().lower()
+                    val = val.strip()
+                    if key == "birth_year":
+                        birth_year = int(val)
+                        using_defaults = False
+                    elif key == "retirement_year":
+                        retirement_year = int(val)
+                        using_defaults = False
+        except Exception:
+            pass  # Fall back to defaults on any error
+
+    return birth_year, retirement_year, using_defaults
+
+
+def compute_target_allocation(years_to_retirement: int) -> dict:
+    """
+    Interpolates the glide path to compute target allocation percentages.
+    Returns dict: {"US Equity": pct, "Intl Equity": pct, "Bond": pct, "Stable Value": pct}
+    All values sum to 100.
+    """
+    # Determine equity percentage from piecewise linear glide path
+    if years_to_retirement >= GLIDE_PATH[0][0]:
+        equity_pct = GLIDE_PATH[0][1]
+    elif years_to_retirement <= GLIDE_PATH[-1][0]:
+        equity_pct = GLIDE_PATH[-1][1]
+    else:
+        # Find the two bracketing points and interpolate
+        for i in range(len(GLIDE_PATH) - 1):
+            upper_yr, upper_eq = GLIDE_PATH[i]
+            lower_yr, lower_eq = GLIDE_PATH[i + 1]
+            if lower_yr <= years_to_retirement <= upper_yr:
+                ratio = (years_to_retirement - lower_yr) / (upper_yr - lower_yr)
+                equity_pct = lower_eq + ratio * (upper_eq - lower_eq)
+                break
+
+    bond_pct = 1.0 - equity_pct
+    # Split equity between US and Intl
+    us_eq = equity_pct * EQUITY_SPLIT["US Equity"]
+    intl_eq = equity_pct * EQUITY_SPLIT["Intl Equity"]
+    # Split bonds: mostly bonds, small stable value allocation
+    stable_value = min(bond_pct * 0.15, 0.05)  # Up to 5% stable value
+    bond = bond_pct - stable_value
+
+    return {
+        "US Equity": round(us_eq * 100, 1),
+        "Intl Equity": round(intl_eq * 100, 1),
+        "Bond": round(bond * 100, 1),
+        "Stable Value": round(stable_value * 100, 1),
+    }
 
 
 # --- Scoring ---
@@ -196,6 +281,16 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
             print("\nℹ️  No 401k data found. 401k analysis will be skipped.")
             print("   To include 401k: drop a PDF, CSV, or extracted text file with '401k' in the filename.")
 
+    # --- Investor Profile (for 401k glide-path allocation) ---
+    birth_year, retirement_year, using_profile_defaults = load_investor_profile(data_dir)
+    current_year = pd.Timestamp.now().year
+    years_to_retirement = retirement_year - current_year
+    target_alloc = compute_target_allocation(years_to_retirement)
+    if using_profile_defaults:
+        print(f"ℹ️  No investor_profile.txt found — using defaults (born {birth_year}, retiring {retirement_year}, {years_to_retirement} yrs out).")
+    else:
+        print(f"📋 Investor profile loaded: born {birth_year}, retiring {retirement_year} ({years_to_retirement} yrs to retirement).")
+
     print("Unrolling tax lots to perform LTCG/STCG and Tax-Loss Harvesting analysis...")
     lots_df = parser.unroll_tax_lots(df, hist_df)
 
@@ -262,8 +357,6 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
 
         # --- Section 2: Asset Holding Breakdown ---
         f.write("\n## 2. Asset Holding Breakdown\n")
-        f.write("| Symbol | Account Name | Account Type | Description | Current ER | Suggested Action |\n")
-        f.write("|---|---|---|---|---|---|\n")
 
         def get_action_for_row(row):
             sym = row.get('Symbol', '')
@@ -285,17 +378,33 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         df['Account Type'] = df['Account Name'].map(resolve_account_type)
         df_sorted = df.sort_values(by=['Account Type', 'Account Name', 'Action', 'Symbol'])
 
-        for idx, row in df_sorted.iterrows():
-            sym = row.get('Symbol', '')
-            desc = row.get('Description', '')
-            account_name = row['Account Name']
-            account_type = row['Account Type']
-            er = row.get('Expense Ratio')
-            action = row['Action']
-            if action == "Core Cash Position":
-                er = 0.0
-            er_str = f"{er:.3f}%" if er is not None else "N/A"
-            f.write(f"| {sym} | {account_name} | {account_type} | {desc} | {er_str} | {action} |\n")
+        # Group by Account Type with sub-headers; suppress 401k detail (covered in Section 5)
+        section2_order = ["Taxable Brokerage", "Roth IRA", "HSA", "Employer 401k"]
+        for account_type in section2_order:
+            group = df_sorted[df_sorted['Account Type'] == account_type]
+            if group.empty:
+                continue
+
+            f.write(f"\n### {account_type}\n")
+
+            if account_type == "Employer 401k":
+                k401_count = len(group)
+                f.write(f"> 📋 {k401_count} fund(s) held in your 401k. See **Section 5: 401k Plan Analysis** for detailed scoring, rebalance opportunities, and underperforming holdings.\n")
+                continue
+
+            f.write("| Symbol | Account Name | Description | Current ER | Suggested Action |\n")
+            f.write("|---|---|---|---|---|\n")
+
+            for idx, row in group.iterrows():
+                sym = row.get('Symbol', '')
+                desc = row.get('Description', '')
+                account_name = row['Account Name']
+                er = row.get('Expense Ratio')
+                action = row['Action']
+                if action == "Core Cash Position":
+                    er = 0.0
+                er_str = f"{er:.3f}%" if er is not None else "N/A"
+                f.write(f"| {sym} | {account_name} | {desc} | {er_str} | {action} |\n")
 
         # --- Section 3: Tax Optimization ---
         f.write("\n## 3. Tax Optimization & Loss Harvesting\n")
@@ -733,6 +842,118 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
                         r1 = f"{c['1y_return']*100:+.2f}%"
                         f.write(f"| **{c['ticker']}** | {c['name']} | #{rank} of {len(all_plan_scored)} | {c['score']:.1f} | `{c['er']:.2f}%` | {r1} | Reduce allocation |\n")
                     f.write("\n")
+
+        # --- Section 5e: Recommended 401k Allocation ---
+        if plan_menu_tickers and k401_options_file and all_plan_scored:
+            f.write("### Recommended Allocation\n\n")
+
+            profile_note = "default profile" if using_profile_defaults else "investor profile"
+            equity_total = target_alloc["US Equity"] + target_alloc["Intl Equity"]
+            bond_total = target_alloc["Bond"] + target_alloc["Stable Value"]
+            f.write(f"Based on {profile_note} (born {birth_year}, retiring {retirement_year}, {years_to_retirement} years out):\n")
+            f.write(f"**Target split: {equity_total:.0f}% Equity / {bond_total:.0f}% Bond**\n\n")
+            if using_profile_defaults:
+                f.write(f"> *Using default assumptions. Create `Drop_Financial_Info_Here/investor_profile.txt` with `birth_year` and `retirement_year` to personalize.*\n\n")
+
+            # Classify each scored fund by asset class
+            class_funds = {"US Equity": [], "Intl Equity": [], "Bond": [], "Stable Value": []}
+            for c in all_plan_scored:
+                ac = candidate_data.get(c["ticker"], {}).get("asset_class", "US Equity")
+                if ac in class_funds:
+                    class_funds[ac].append(c)
+
+            # Handle empty classes: roll into fallback
+            if not class_funds["Intl Equity"]:
+                target_alloc["US Equity"] += target_alloc["Intl Equity"]
+                target_alloc["Intl Equity"] = 0.0
+            if not class_funds["Stable Value"]:
+                target_alloc["Bond"] += target_alloc["Stable Value"]
+                target_alloc["Stable Value"] = 0.0
+            if not class_funds["Bond"] and not class_funds["Stable Value"]:
+                target_alloc["US Equity"] += target_alloc["Bond"]
+                target_alloc["Bond"] = 0.0
+
+            # Take top 3 per class, compute score-weighted allocation
+            alloc_rows = []
+            for asset_class, class_target_pct in target_alloc.items():
+                if class_target_pct <= 0 or not class_funds.get(asset_class):
+                    continue
+                top_funds = class_funds[asset_class][:3]
+                total_score = sum(c["score"] for c in top_funds) or 1.0
+                for c in top_funds:
+                    raw_pct = (c["score"] / total_score) * class_target_pct
+                    alloc_rows.append({
+                        "ticker": c["ticker"],
+                        "name": c["name"],
+                        "asset_class": asset_class,
+                        "raw_pct": raw_pct,
+                    })
+
+            # Apply minimum floor and normalize to 100%
+            for row in alloc_rows:
+                row["raw_pct"] = max(row["raw_pct"], MIN_ALLOCATION_PCT)
+            total_raw = sum(r["raw_pct"] for r in alloc_rows) or 100.0
+            for row in alloc_rows:
+                row["target_pct"] = round(row["raw_pct"] / total_raw * 100, 1)
+
+            # Compute current % from k401_df
+            total_401k = k401_df['Current Value'].sum() if not k401_df.empty else 0
+            held_pcts = {}
+            if total_401k > 0:
+                for _, row in k401_df.iterrows():
+                    sym = row.get('Symbol', '')
+                    held_pcts[sym] = round(row.get('Current Value', 0) / total_401k * 100, 1)
+
+            f.write("| Ticker | Fund Name | Asset Class | Current % | Target % | Change | Action |\n")
+            f.write("|---|---|---|---|---|---|---|\n")
+
+            for row in sorted(alloc_rows, key=lambda x: x["target_pct"], reverse=True):
+                ticker = row["ticker"]
+                current_pct = held_pcts.get(ticker, 0.0)
+                target_pct = row["target_pct"]
+                delta = target_pct - current_pct
+
+                if current_pct == 0.0:
+                    action = "**Add**"
+                elif delta > 2.0:
+                    action = "Increase"
+                elif delta < -2.0:
+                    action = "Reduce"
+                else:
+                    action = "Hold"
+
+                delta_str = f"{delta:+.1f}%" if current_pct > 0 else f"+{target_pct:.1f}%"
+                f.write(f"| **{ticker}** | {row['name']} | {row['asset_class']} | {current_pct:.1f}% | {target_pct:.1f}% | {delta_str} | {action} |\n")
+
+            # Funds currently held but not in target allocation
+            target_tickers = {r["ticker"] for r in alloc_rows}
+            for sym, pct in held_pcts.items():
+                if sym not in target_tickers and pct > 0:
+                    md = candidate_data.get(sym, {})
+                    name = md.get("name", sym)
+                    ac = md.get("asset_class", "US Equity")
+                    f.write(f"| **{sym}** | {name} | {ac} | {pct:.1f}% | 0.0% | -{pct:.1f}% | **Remove** |\n")
+
+            f.write("\n")
+
+            # Summary: current vs target equity/bond split
+            current_equity = 0.0
+            current_bond = 0.0
+            if total_401k > 0:
+                for _, row in k401_df.iterrows():
+                    sym = row.get('Symbol', '')
+                    val_pct = row.get('Current Value', 0) / total_401k * 100
+                    ac = candidate_data.get(sym, {}).get("asset_class", "US Equity")
+                    if ac in ("US Equity", "Intl Equity"):
+                        current_equity += val_pct
+                    else:
+                        current_bond += val_pct
+
+            status = "✅ Aligned" if abs(current_equity - equity_total) <= 5 else "⚠️ Rebalance needed"
+            f.write(f"**Current split:** {current_equity:.0f}% Equity / {current_bond:.0f}% Bond | ")
+            f.write(f"**Target:** {equity_total:.0f}% Equity / {bond_total:.0f}% Bond | {status}\n\n")
+
+            f.write("> *Illustrative model based on a standard target-date glide path. Consult a financial advisor before making changes to your 401k allocations.*\n\n")
 
         # --- Section 6: Evaluation Metrics Summary ---
         f.write("## 6. Evaluation Metrics Summary\n\n")

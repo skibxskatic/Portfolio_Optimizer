@@ -116,6 +116,7 @@ def fetch_ticker_metadata(tickers: list[str]) -> Dict[str, Dict[str, Any]]:
                 "5y_return": ret_5y,
                 "net_of_fees_5y": metrics.compute_net_of_fees_return(ticker, "5y"),
                 "10y_return": metrics.compute_total_return(ticker, "10y"),
+                "asset_class": metrics.classify_asset_class(ticker),
             }
 
         except Exception as e:
