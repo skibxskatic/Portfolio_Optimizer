@@ -132,10 +132,12 @@ When an `investor_profile.txt` is present (or using defaults), the engine comput
         *   **Taxable Brokerage:** Tax-efficient growth funds scored by Sharpe Ratio and low distribution yield.
     *   **401k Plan Analysis:** When 401k data is present, the report includes a dedicated Section 5 that quarantines 401k holdings. It generates a Plan Menu Scorecard ranking every available fund in the employer plan by the engine's 401k mathematical formula, highlights explicit **Rebalance Opportunities** (top 5 unheld funds), **Underperforming Holdings** (bottom half held funds), and a **Recommended Allocation** table. The allocation engine uses a piecewise linear glide path (Vanguard-style) to compute an age-aware equity/bond target split, classifies each plan fund into 4 asset classes (US Equity, Intl Equity, Bond, Stable Value) via `classify_asset_class()`, and produces score-weighted percentage targets per fund with a 5% minimum floor. An `investor_profile.txt` in `Drop_Financial_Info_Here/` provides `birth_year` and `retirement_year` for age-aware scoring across all account types; defaults are used if absent.
     *   **Capital Gains Screener:** The screener MUST automatically exclude all tax-advantaged accounts (e.g., Roth IRA, 401k/HSA) since capital gains rules do not apply to them. It must only evaluate lots in Taxable Brokerage accounts and visually group the output table sorted primarily by Account Name.
-    *   **Evaluation Metrics Summary:** The report MUST include a dedicated Section 6 explaining:
-        *   Each evaluation metric used (Net-of-Fees Return, Sharpe Ratio, Sortino Ratio, Max Drawdown, Tracking Error, Total Return 10Y).
-        *   Why each metric was selected for its respective account type.
-        *   How to interpret the scores (e.g., "A Sharpe Ratio above 1.0 is considered good; above 2.0 is excellent").
+    *   **Executive Summary (Section 0):** The report MUST open with 3-5 auto-generated bullets summarizing the most actionable findings, each with a section reference.
+    *   **Next Steps (Section 6):** Contextual action items grouped by category (high-ER replacements with tax context, TLH actions with wash-sale warnings, 401k rebalancing, age-inappropriate holdings). Shows "no action items" if portfolio is well-positioned.
+    *   **Why These Recommendations (Section 7):** Two tiers:
+        *   **Tier 1:** Plain-English verdict table (Keep/Replace/Evaluate per holding with human-readable "Why" — no raw metric numbers).
+        *   **Tier 2:** Evaluation metrics summary explaining each metric, per-account scoring rationale, and age-aware scoring adjustments. Collapsible in HTML via `<details>` tag.
+    *   **Dual Output:** The engine generates both an interactive HTML report (with TOC, collapsible sections, Water.css styling) and a PDF report. HTML auto-opens in browser.
 
 ### Phase 5: Quality Assurance (Pre-Flight Pipeline)
 *   **Pre-Flight Gate:** The `validator.py` script MUST run automatically before every analysis in `portfolio_analyzer.py`. If any check fails, the engine must abort immediately and print a clear diagnostic message rather than generating a corrupted report.

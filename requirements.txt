@@ -1,3 +1,4 @@
 
 markdown-pdf==1.13.1
 pypdf
+markdown>=3.5

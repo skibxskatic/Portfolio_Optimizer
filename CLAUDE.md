@@ -18,7 +18,7 @@ py src/portfolio_analyzer.py
 PowerShell.exe -NoProfile -ExecutionPolicy Bypass -File src\run_optimizer.ps1
 ```
 
-> Note: Both `Portfolio_Optimizer.bat` (via `run_optimizer.ps1`) and `Portfolio_Optimizer.command` auto-detect an active venv, activate an existing one, or create and initialize a new venv with all dependencies if none exists.
+> Note: Both `Portfolio_Optimizer.bat` (via `run_optimizer.ps1`) and `Portfolio_Optimizer.command` auto-detect an active venv, activate an existing one (syncing any new `requirements.txt` deps), or create and initialize a new venv with all dependencies if none exists.
 
 **Run validator standalone:**
 ```
@@ -38,7 +38,7 @@ venv\Scripts\activate
 pip install -r requirements.txt
 pip install pandas numpy yfinance requests lxml openpyxl
 ```
-> Note: `requirements.txt` only lists `markdown-pdf` and `pypdf`. The core data dependencies (`pandas`, `numpy`, `yfinance`, `requests`, `lxml`) must be installed separately. `openpyxl` is required by `GenericAdapter` for `.xlsx` broker exports.
+> Note: `requirements.txt` lists `markdown-pdf`, `pypdf`, and `markdown>=3.5`. The core data dependencies (`pandas`, `numpy`, `yfinance`, `requests`, `lxml`) must be installed separately. `openpyxl` is required by `GenericAdapter` for `.xlsx` broker exports.
 
 **Run the ER diagnostic tool:**
 ```
@@ -61,14 +61,15 @@ file_ingestor.py → parsers/ (adapter layer) → portfolio_analyzer.py
                                                         ↓
                                               market_data.py + metrics.py
                                                         ↓
-                                              Portfolio_Analysis_Report_*.pdf
+                                              Portfolio_Analysis_Report_*.{pdf,html}
 ```
 
 ### Key Files
 
 | File | Role |
 |------|------|
-| `src/portfolio_analyzer.py` | Main orchestrator. Runs validator pre-flight, ingests data, applies all scoring/routing logic, generates the markdown+PDF report. |
+| `src/portfolio_analyzer.py` | Main orchestrator. Runs validator pre-flight, ingests data, applies all scoring/routing logic, generates the markdown+PDF+HTML report. |
+| `src/water.min.css` | Embedded Water.css (light theme) for self-contained HTML reports. Loaded at runtime by `_render_html_report()`. |
 | `src/file_ingestor.py` | 3-layer auto-dispatcher. Detects file format and broker; routes to the correct adapter. Uses `ADAPTER_REGISTRY` for 401k files. |
 | `src/parser.py` | Backward-compat shim. Delegates to `FidelityAdapter` — `portfolio_analyzer.py` still calls `load_fidelity_positions()` / `load_fidelity_history()` unchanged. |
 | `src/401k_parser.py` | Backward-compat shim. Re-exports 401k parsing functions from `parsers.fidelity`. |
@@ -127,13 +128,21 @@ file_ingestor.py → parsers/ (adapter layer) → portfolio_analyzer.py
 - Section 2: `get_age_flag()` appends italic age-appropriate warnings to Suggested Action column
 - Section 3: TLH urgency labels (High/Normal/Low) based on age_factor; near-retirement alert callout
 - Section 4: 0.85x penalty for age-inappropriate Roth IRA candidates
-- Section 6: Age-Aware Scoring Adjustments sub-section explains weight shifts
+- Section 6: Next Steps — contextual action items grouped by category (ER replacements, TLH, 401k, age-inappropriate)
+- Section 7: Why These Recommendations — Tier 1 plain-English verdict table + Tier 2 methodology (collapsible in HTML via `<!-- DETAILS_START/END -->` markers)
 
 **401k Allocation Engine (Section 5e):**
 - `load_investor_profile(data_dir)` — parses `investor_profile.txt` for `birth_year` and `retirement_year`; returns defaults if missing
 - `compute_target_allocation(years_to_retirement)` — interpolates glide path → `{US Equity, Intl Equity, Bond, Stable Value}` percentages summing to 100
 - `classify_asset_class(ticker)` (in `metrics.py`) — classifies funds into 4 classes via yfinance `category` + fund name keywords
 - Section 5e renders a recommended allocation table with Current %, Target %, Change, and Action columns
+
+**Findings Collector & New Report Sections:**
+- `findings = []` list populated at 6 points during report generation (high-ER, risk alignment, age-inappropriate, TLH, STCG, 401k rebalance)
+- `_render_executive_summary(findings)` — Section 0, 3-5 auto-generated bullets with section refs; spliced before Section 1
+- `_render_next_steps(...)` — Section 6, grouped action items with tax context (ER replacements, TLH, 401k, age-inappropriate)
+- `_render_verdict_table(df, metadata, age_factor)` — Section 7 Tier 1, plain-English Keep/Replace/Evaluate per holding
+- `_render_html_report(markdown_content, table_css)` — converts markdown to self-contained HTML with TOC, collapsible `<details>` for Tier 2 methodology, embedded Water.css
 
 ### Known Open Constraints (`docs/CONSTRAINTS.md`)
 
@@ -150,7 +159,9 @@ These are tracked architectural issues that have not yet been implemented:
 - **TLH is filtered to `Taxable Brokerage` accounts only** — losses in Roth IRA, HSA, and 401k have no tax benefit and are excluded from TLH output.
 
 ### Output
-The engine outputs `Portfolio_Analysis_Report_<timestamp>.pdf` to `Drop_Financial_Info_Here/.cache/`. The PDF uses a continuous single-page format with dynamic height (`max(210, 50 + line_count * 6.5)` mm) to eliminate page breaks cutting through tables.
+The engine outputs dual reports to `Drop_Financial_Info_Here/.cache/`:
+- **HTML** (`Portfolio_Analysis_Report_<timestamp>.html`): Self-contained with embedded Water.css, clickable TOC, collapsible methodology section via `<details>`. Auto-opened in browser.
+- **PDF** (`Portfolio_Analysis_Report_<timestamp>.pdf`): Continuous single-page format with dynamic height (`max(210, 50 + line_count * 6.5)` mm). DETAILS markers stripped; all content renders inline.
 
 ### Privacy Constraint
 No raw financial data (dollar amounts, account numbers) may be printed to stdout during execution. Only anonymized ticker symbols are sent to external APIs via `yfinance`.

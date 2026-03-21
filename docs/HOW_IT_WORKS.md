@@ -100,4 +100,9 @@ Finally, it looks at the exact day you bought every single share in your **taxab
 
 ## 10. The Final Report
 
-The Optimizer takes all of this math, bundles it into a beautifully formatted, continuous PDF report, and automatically pops it open on your screen!
+The Optimizer takes all of this math and bundles it into two report formats:
+
+* **Interactive HTML Report** — Opens automatically in your browser with a clickable table of contents, collapsible methodology sections, and professional styling. This is the primary way to read your report.
+* **PDF Report** — A continuous, single-page PDF saved alongside the HTML for offline sharing or printing.
+
+The report starts with an **Executive Summary** (3-5 auto-generated bullets highlighting what matters most), includes all the detailed analysis in Sections 1-5, then closes with **Next Steps** (exactly what to do, with tax context) and **Why These Recommendations** (a plain-English verdict for every holding).

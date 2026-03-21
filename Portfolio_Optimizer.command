@@ -18,6 +18,7 @@ if [ -n "$VIRTUAL_ENV" ]; then
     echo "Virtual environment already active ($VIRTUAL_ENV)."
 elif [ -f "$VENV_ACTIVATE" ]; then
     source "$VENV_ACTIVATE"
+    pip install -r "$SCRIPT_DIR/requirements.txt" --quiet 2>/dev/null
     echo "Virtual environment activated."
 else
     echo "Virtual environment not found. Creating one..."

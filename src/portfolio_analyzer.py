@@ -1,5 +1,7 @@
 import os
 import io
+import re
+import webbrowser
 import parser
 import market_data
 import metrics
@@ -10,6 +12,7 @@ import importlib
 k401_parser = importlib.import_module('401k_parser')
 import file_ingestor
 from markdown_pdf import Section, MarkdownPdf
+import markdown as md_lib
 
 # --- Configuration Constants ---
 
@@ -230,6 +233,211 @@ def score_candidate(ticker: str, data: dict, routing_bucket: str, years_to_retir
     return data
 
 
+# --- New Report Sections ---
+
+def _render_executive_summary(findings: list) -> str:
+    """Renders Section 0: Executive Summary with 3-5 actionable bullets."""
+    lines = ["## 0. Executive Summary\n\n"]
+    actionable = [f for f in findings if f.get("text")]
+    if len(actionable) < 3:
+        lines.append("- Your portfolio is well-optimized — no urgent action items detected.\n")
+    for f in actionable[:5]:
+        lines.append(f"- {f['text']} *(see Section {f['section_ref']})*\n")
+    lines.append("\n")
+    return "".join(lines)
+
+
+def _render_next_steps(df, metadata, tlh_agg, candidates_by_bucket, age_factor, plan_menu_tickers, all_plan_scored=None) -> str:
+    """Renders Section 6: Next Steps with contextual how-to actions."""
+    lines = ["## 6. Next Steps\n\n"]
+    has_actions = False
+
+    # 1. High-ER Replacements
+    er_actions = []
+    for _, row in df.iterrows():
+        sym = row.get('Symbol', '')
+        er = row.get('Expense Ratio')
+        if er is not None and er > 0.40:
+            account_name = row.get('Account Name', 'Unknown')
+            account_type = resolve_account_type(account_name)
+            # Find best replacement in matching bucket
+            bucket_key = {"Taxable Brokerage": "taxable", "Roth IRA": "roth", "HSA": "hsa", "Employer 401k": "k401"}.get(account_type, "taxable")
+            bucket_cands = candidates_by_bucket.get(bucket_key, [])
+            replacement = bucket_cands[0]["ticker"] if bucket_cands else "a lower-cost alternative"
+            if isinstance(replacement, dict):
+                replacement = replacement.get("ticker", replacement)
+            tax_ctx = {"Roth IRA": "Tax-free swap", "Employer 401k": "Tax-deferred", "HSA": "Tax-free swap"}.get(account_type, "Check LTCG status first")
+            er_actions.append(f"- Replace **{sym}** → **{replacement}** in {account_name}. {tax_ctx}. *(See Section 4.)*\n")
+    if er_actions:
+        has_actions = True
+        lines.append("### High-ER Replacements\n\n")
+        lines.extend(er_actions)
+        lines.append("\n")
+
+    # 2. TLH Actions
+    if tlh_agg:
+        has_actions = True
+        lines.append("### Tax-Loss Harvesting Actions\n\n")
+        for r in tlh_agg[:5]:
+            sym = r['Symbol']
+            account = r['Account Name']
+            identical = get_substantially_identical_symbols(sym)
+            wash_note = f"Watch wash-sale with {', '.join(identical - {sym})}." if len(identical) > 1 else ""
+            lines.append(f"- Harvest loss on **{sym}** in {account}. {wash_note} *(See Section 3.)*\n")
+        lines.append("\n")
+
+    # 3. 401k Rebalancing
+    if all_plan_scored and plan_menu_tickers:
+        held_tickers_401k = set(df[df['Account Name'].str.contains('401k|401K', na=False)]['Symbol'].tolist())
+        top_not_held = [c for c in all_plan_scored if c["ticker"] not in held_tickers_401k][:3]
+        if top_not_held:
+            has_actions = True
+            lines.append("### 401k Rebalancing\n\n")
+            for c in top_not_held:
+                lines.append(f"- Add **{c['ticker']}** to 401k elections. No tax impact. *(See Section 5.)*\n")
+            lines.append("\n")
+
+    # 4. Age-Inappropriate Holdings
+    age_flags = []
+    for _, row in df.iterrows():
+        sym = row.get('Symbol', '')
+        if pd.isna(sym) or sym == 'CORE' or str(sym).endswith("XX"):
+            continue
+        flag = _get_age_flag_text(row, age_factor, metadata)
+        if flag:
+            age_flags.append(f"- Evaluate **{sym}**{flag} *(See Section 2.)*\n")
+    if age_flags:
+        has_actions = True
+        lines.append("### Age-Inappropriate Holdings\n\n")
+        lines.extend(age_flags[:5])
+        lines.append("\n")
+
+    if not has_actions:
+        lines.append("No immediate action items. Your portfolio is well-positioned.\n\n")
+
+    return "".join(lines)
+
+
+def _get_age_flag_text(row, age_factor, metadata):
+    """Returns age-appropriate flag text, or empty string. Used by next steps."""
+    sym = row.get('Symbol', '')
+    if pd.isna(sym) or sym == 'CORE' or str(sym).endswith("XX"):
+        return ""
+    account_type = resolve_account_type(row.get('Account Name', ''))
+    ac = metadata.get(sym, {}).get('asset_class', 'US Equity')
+    beta = metadata.get(sym, {}).get('beta', 1.0) or 1.0
+    if age_factor > 0.7 and ac in ("Bond", "Stable Value") and account_type in ("Roth IRA", "HSA"):
+        return " — Consider higher-growth funds for your horizon."
+    if age_factor < 0.3 and beta > 1.2 and account_type in ("Taxable Brokerage", "Roth IRA"):
+        return " — Consider lower-volatility for your horizon."
+    return ""
+
+
+def _render_verdict_table(df, metadata, age_factor) -> str:
+    """Renders Section 7 Tier 1: Plain-English verdict table."""
+    lines = []
+    lines.append("### Fund-by-Fund Verdict\n\n")
+    lines.append("| Symbol | Account | Current ER | Verdict | Why |\n")
+    lines.append("|---|---|---|---|---|\n")
+
+    for _, row in df.iterrows():
+        sym = row.get('Symbol', '')
+        if pd.isna(sym) or sym == 'CORE' or str(sym).endswith("XX"):
+            continue
+        er = row.get('Expense Ratio')
+        account_name = row.get('Account Name', 'Unknown')
+        account_type = resolve_account_type(account_name)
+        er_str = f"{er:.2f}%" if pd.notna(er) else "N/A"
+
+        # Determine verdict and plain-English why
+        if er is not None and er > 0.40:
+            nof = metadata.get(sym, {}).get('net_of_fees_5y')
+            if nof is not None and nof > 0.08:
+                verdict = "**Evaluate**"
+                why = "Mixed signal: high fees but strong recent performance"
+            else:
+                verdict = "**Replace**"
+                fee_drag = er / 100 if er else 0
+                why = f"Fees eroding ~{er:.2f}% of annual return vs alternatives"
+        else:
+            verdict = "Keep"
+            reasons = []
+            if er is not None and er < 0.10:
+                reasons.append("Low fees")
+            elif er is not None:
+                reasons.append("Reasonable fees")
+            nof = metadata.get(sym, {}).get('net_of_fees_5y')
+            if nof is not None and nof > 0.08:
+                reasons.append("strong 5Y growth")
+            elif nof is not None and nof > 0.04:
+                reasons.append("solid 5Y returns")
+            md_info = metadata.get(sym, {})
+            if md_info.get('asset_class') in ('Bond', 'Stable Value'):
+                reasons.append("income/stability role")
+            if not reasons:
+                reasons.append("Meets current criteria")
+            why = ", ".join(reasons)
+
+        # Check age flag
+        flag = _get_age_flag_text(row, age_factor, metadata)
+        if flag:
+            why += f" {flag.strip()}"
+
+        lines.append(f"| {sym} | {account_type} | {er_str} | {verdict} | {why} |\n")
+
+    lines.append("\n")
+    return "".join(lines)
+
+
+def _render_html_report(markdown_content: str, table_css: str) -> str:
+    """Converts markdown report to a self-contained HTML document."""
+    md_converter = md_lib.Markdown(extensions=['tables', 'toc'])
+    html_body = md_converter.convert(markdown_content)
+    toc_html = getattr(md_converter, 'toc', '')
+
+    # Post-process DETAILS markers into <details><summary> tags
+    html_body = re.sub(
+        r'<!-- DETAILS_START: (.+?) -->',
+        r'<details><summary>\1</summary>',
+        html_body
+    )
+    html_body = html_body.replace('<!-- DETAILS_END -->', '</details>')
+
+    # Load Water.css
+    css_path = Path(__file__).parent / "water.min.css"
+    water_css = css_path.read_text(encoding="utf-8") if css_path.exists() else ""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio Optimization Report</title>
+<style>
+{water_css}
+body {{ max-width: 1100px; }}
+{table_css}
+table {{ table-layout: auto; }}
+html {{ scroll-behavior: smooth; }}
+nav {{ background: var(--background-alt); padding: 12px 16px; border-radius: 6px; margin-bottom: 24px; }}
+nav ul {{ list-style: none; padding: 0; margin: 0; }}
+nav ul li {{ margin: 4px 0; }}
+nav a {{ font-weight: 600; }}
+</style>
+</head>
+<body>
+<nav>
+<strong>Contents</strong>
+{toc_html}
+</nav>
+{html_body}
+<footer>
+<p>Generated locally by Portfolio Optimizer. No financial data was transmitted externally.</p>
+</footer>
+</body>
+</html>"""
+
+
 # --- Report Generation ---
 
 def generate_privacy_report(positions_path=None, history_path=None, report_path=None):
@@ -376,6 +584,8 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         "th { background-color: #f2f2f2; font-weight: bold; }\n"
     )
 
+    findings = []
+
     with io.StringIO() as f:
         f.write("# Portfolio Optimization Report\n\n")
 
@@ -391,6 +601,11 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
             f.write("  - ⚠️ *Warning: Your aggregate expense ratio is above the recommended 0.40% threshold for passive long-term indexing.*\n")
         else:
             f.write("  - ✅ *Excellent: Your portfolio fees are highly optimized.*\n")
+
+        # Finding: High-ER holdings
+        high_er_count = len(df[df['Expense Ratio'].notna() & (df['Expense Ratio'] > 0.40)]) if 'Expense Ratio' in df.columns else 0
+        if high_er_count > 0:
+            findings.append({"category": "high_er", "text": f"**{high_er_count} holding(s)** have expense ratios above 0.40% — consider lower-cost alternatives", "section_ref": 2})
         f.write(f"- **Risk-Free Rate (13-Week T-Bill):** `{rf*100:.2f}%` *(fetched live)*\n")
 
         # Portfolio Risk Profile — aggregate equity % vs glide-path target
@@ -410,6 +625,10 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         risk_status = "Aligned" if abs(portfolio_equity_pct - target_equity_pct) <= 10 else "Rebalance needed"
         risk_icon = "✅" if risk_status == "Aligned" else "⚠️"
         f.write(f"\n> **Portfolio Risk Profile:** Your portfolio is **{portfolio_equity_pct:.0f}% equity** — target for your age is **{target_equity_pct:.0f}%**. {risk_icon} *{risk_status}*\n")
+
+        # Finding: Risk alignment
+        if risk_status == "Rebalance needed":
+            findings.append({"category": "risk", "text": f"Portfolio equity allocation ({portfolio_equity_pct:.0f}%) deviates from age-based target ({target_equity_pct:.0f}%) — rebalance recommended", "section_ref": 1})
         if using_profile_defaults:
             f.write(f"> *Target based on default profile. Create `investor_profile.txt` for a personalized target.*\n")
 
@@ -481,6 +700,11 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
                 er_str = f"{er:.3f}%" if pd.notna(er) else "N/A"
                 f.write(f"| {sym} | {account_name} | {desc} | {er_str} | {action} |\n")
 
+        # Finding: Age-inappropriate holdings
+        age_inappropriate_count = sum(1 for _, row in df.iterrows() if _get_age_flag_text(row, age_factor, metadata))
+        if age_inappropriate_count > 0:
+            findings.append({"category": "age_inappropriate", "text": f"**{age_inappropriate_count} holding(s)** may be age-inappropriate for your investment horizon", "section_ref": 2})
+
         # --- Section 3: Tax Optimization ---
         f.write("\n## 3. Tax Optimization & Loss Harvesting\n")
         f.write("By tracking individual lot purchase dates via FIFO accounting, we can optimize your short-term/long-term capital gains classification and find tax loss harvesting opportunities.\n\n")
@@ -522,6 +746,13 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         total_harvestable = sum(r['Est_Loss'] for r in tlh_agg)
         tlh_position_count = len(tlh_agg)
         f.write(f"> **Tax Snapshot:** {tlh_position_count} position(s) with harvestable losses totaling (${total_harvestable:,.0f}) | {stcg_symbol_count} position(s) with pending STCG exposure\n\n")
+
+        # Finding: TLH opportunities
+        if tlh_position_count > 0:
+            findings.append({"category": "tlh", "text": f"**{tlh_position_count} position(s)** with harvestable tax losses available", "section_ref": 3})
+        # Finding: STCG exposure
+        if stcg_symbol_count > 0:
+            findings.append({"category": "stcg", "text": f"**{stcg_symbol_count} position(s)** have short-term capital gains exposure — consider holding past 1 year", "section_ref": 3})
 
         f.write("### 🚨 Tax-Loss Harvesting Candidates\n")
         if tlh_agg:
@@ -822,6 +1053,7 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         )
 
         # --- Section 5: 401k Plan Analysis ---
+        all_plan_scored = []
         if plan_menu_tickers and k401_options_file:
             print("Generating dedicated 401k Plan Analysis section...")
             f.write("\n## 5. 401k Plan Analysis\n\n")
@@ -901,6 +1133,11 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
 
             # 5c. Rebalance Opportunities
             top_not_held = [c for c in all_plan_scored if c["ticker"] not in held_tickers][:5]
+
+            # Finding: 401k rebalance
+            if top_not_held:
+                findings.append({"category": "k401_rebalance", "text": f"**{len(top_not_held)} higher-scoring fund(s)** in your 401k plan that you don't currently hold", "section_ref": 5})
+
             if top_not_held:
                 f.write("### 🔄 Rebalance Opportunities\n")
                 f.write("These are the **highest-scoring funds in your plan that you don't currently hold**. ")
@@ -1051,8 +1288,29 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
 
             f.write("> *Illustrative model based on a standard target-date glide path. Consult a financial advisor before making changes to your 401k allocations.*\n\n")
 
-        # --- Section 6: Evaluation Metrics Summary ---
-        f.write("## 6. Evaluation Metrics Summary\n\n")
+        # --- Section 6: Next Steps ---
+        candidates_by_bucket = {
+            "taxable": taxable_main,
+            "roth": roth_main,
+            "hsa": hsa_main,
+            "k401": k401_main,
+        }
+        next_steps_md = _render_next_steps(
+            df, metadata, tlh_agg, candidates_by_bucket, age_factor,
+            plan_menu_tickers,
+            all_plan_scored=all_plan_scored if (plan_menu_tickers and k401_options_file) else None,
+        )
+        f.write(next_steps_md)
+
+        # --- Section 7: Why These Recommendations ---
+        f.write("## 7. Why These Recommendations\n\n")
+
+        # Tier 1: Plain-English verdict table
+        verdict_md = _render_verdict_table(df, metadata, age_factor)
+        f.write(verdict_md)
+
+        # Tier 2: Methodology & Scoring Details (collapsible in HTML)
+        f.write("<!-- DETAILS_START: Methodology & Scoring Details -->\n\n")
         f.write("### How Each Metric is Used\n\n")
         f.write("| Metric | Used For | What It Measures | Interpretation |\n")
         f.write("|---|---|---|---|\n")
@@ -1079,32 +1337,50 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         f.write("- **Young investors (40+ yrs out):** Higher weight on growth metrics (Net-of-Fees, Sortino, 10Y Return). Lower weight on defensive metrics (Max Drawdown).\n")
         f.write("- **Near-retirement (< 12 yrs out):** Higher weight on risk metrics (Sharpe, Max Drawdown). Lower weight on long-term total return. TLH urgency elevated.\n")
         f.write("- **Replacement candidates** receive a soft penalty (0.85x) if age-inappropriate for Roth IRA (e.g., bonds for young investors, high-beta for near-retirement).\n")
+        f.write("\n<!-- DETAILS_END -->\n")
 
         markdown_content = f.getvalue()
+
+    # Splice Executive Summary before Section 1
+    exec_summary = _render_executive_summary(findings)
+    insert_idx = markdown_content.find("## 1.")
+    if insert_idx >= 0:
+        markdown_content = markdown_content[:insert_idx] + exec_summary + markdown_content[insert_idx:]
 
     # 4. Save exact markdown to Drop_Financial_Info_Here/ cache
     with open(report_path, "w", encoding="utf-8") as md_file:
         md_file.write(markdown_content)
 
-    # 5. Convert to PDF and auto-open (Non-Tech Friendly Pattern)
+    # 5. Convert to PDF and HTML (dual output)
     timestamp_file = pd.Timestamp.now().strftime("%b-%d-%Y_%H-%M-%S")
     pdf_path = cache_dir / f"Portfolio_Analysis_Report_{timestamp_file}.pdf"
-    
+    html_path = cache_dir / f"Portfolio_Analysis_Report_{timestamp_file}.html"
+
     print("Converting report to PDF...")
     pdf = MarkdownPdf(toc_level=2)
-    # Estimate height based on line count to completely avoid massive blank spaces at the bottom
-    # Assuming ~6.5mm height per text line + 50mm padding, enforcing a minimum of 210mm (A4 Landscape)
-    estimated_height = max(210, 50 + markdown_content.count('\n') * 6.5)
-    pdf.add_section(Section(markdown_content, paper_size=(297, estimated_height)), user_css=table_css)
+    # Strip DETAILS markers for PDF (content renders inline, markers invisible)
+    pdf_markdown = markdown_content.replace("<!-- DETAILS_START: Methodology & Scoring Details -->\n\n", "")
+    pdf_markdown = pdf_markdown.replace("\n<!-- DETAILS_END -->\n", "")
+    estimated_height = max(210, 50 + pdf_markdown.count('\n') * 6.5)
+    pdf.add_section(Section(pdf_markdown, paper_size=(297, estimated_height)), user_css=table_css)
     pdf.save(str(pdf_path))
 
-    print(f"\n✅ Privacy-safe PDF report successfully generated at: {pdf_path.absolute()}")
-    print("Opening your personalized report...")
-    
+    print("Converting report to HTML...")
+    html_content = _render_html_report(markdown_content, table_css)
+    html_path.write_text(html_content, encoding="utf-8")
+
+    print(f"\n✅ Report saved:")
+    print(f"   → HTML: {html_path.name} (opened)")
+    print(f"   → PDF:  {pdf_path.name}")
+
     try:
-        os.startfile(str(pdf_path.absolute()))
+        webbrowser.open(html_path.as_uri())
     except Exception as e:
-        print(f"⚠️ Could not auto-open the PDF: {e}")
+        print(f"⚠️ Could not auto-open the HTML report: {e}")
+        try:
+            os.startfile(str(pdf_path.absolute()))
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     generate_privacy_report()

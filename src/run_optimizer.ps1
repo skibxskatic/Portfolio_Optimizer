@@ -12,6 +12,7 @@ if ($env:VIRTUAL_ENV) {
 }
 elseif (Test-Path $VenvActivate) {
     . $VenvActivate
+    pip install -r (Join-Path $PSScriptRoot "..\requirements.txt") --quiet 2>$null
     Write-Host "Virtual environment activated." -ForegroundColor Green
 }
 else {

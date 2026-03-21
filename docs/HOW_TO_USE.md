@@ -88,7 +88,7 @@ cd path\to\your\Portfolio_Optimizer\
 py src\portfolio_analyzer.py
 ```
 
-🎉 **That's it!** The engine will automatically generate a timestamped, styled `.pdf` version of your report. This report is formatted as a **single, continuous scrolling page** (with cleanly formatted tables) to eliminate page breaks entirely. It will instantly pop open on your screen so you can immediately review your insights. A permanent copy is saved in the `Drop_Financial_Info_Here/.cache/` folder.
+🎉 **That's it!** The engine will automatically generate both an **interactive HTML report** and a **PDF version**. The HTML report opens in your browser with clickable navigation and collapsible sections. Both are saved in the `Drop_Financial_Info_Here/.cache/` folder.
 
 ## 4. Understanding the Output Report
 
@@ -104,7 +104,8 @@ The report contains:
    - 🏦 **Taxable Brokerage** — Tax-efficient growth funds (scored by Sharpe + low yield)
    - Each table may include an **"Emerging Funds"** sub-section for funds with < 3 years of history, labeled `⚠️ < 3Y History`.
 5. **401k Plan Analysis** *(If 401k PDF is provided)* — Dedicated scorecard ranking every fund in your employer's plan, highlighting Rebalance Opportunities, Underperforming Holdings, and an age-aware **Recommended Allocation** table with target percentages based on your glide-path profile.
-6. **Evaluation Metrics Summary** — Explains each metric, why it's used for each account type, how to interpret scores, and how age-aware scoring adjustments shift weights based on your time horizon.
+6. **Next Steps** — Contextual action items grouped by category: high-ER replacements with tax context, TLH actions with wash-sale warnings, 401k rebalancing, and age-inappropriate holdings.
+7. **Why These Recommendations** — A plain-English verdict table (Keep/Replace/Evaluate per holding with human-readable "Why"), plus a collapsible methodology section explaining each metric, per-account scoring, and age-aware adjustments.
 
 ## 5. Understanding the Pre-Flight QA Checks
 Every time you run `portfolio_analyzer.py`, the engine **automatically runs Quality Assurance checks** before processing your data:
