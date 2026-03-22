@@ -1,7 +1,7 @@
 # Portfolio Optimizer – Product Requirements Document (PRD)
 
 ## 1. Overview
-**Project Name:** Portfolio Optimizer (Antigravity IDE Automation)
+**Project Name:** Portfolio Optimizer
 **Objective:** Build a local data processing engine to analyze exported brokerage account data and optimize the portfolio for **long-term wealth accumulation**. The core focus is maximizing after-tax compounding through tax-efficient asset placement, low expenses, and evidence-based fund evaluation — following a "time in market over timing the market" philosophy.
 
 ## 2. Target User & Use Case
@@ -30,7 +30,7 @@
 *   **File Format Auto-Dispatcher (`file_ingestor.py`):** A 3-layer detection pipeline that auto-detects file formats (CSV, Excel, PDF, extracted text) and routes to the correct adapter. For 401k files, iterates `ADAPTER_REGISTRY` calling each adapter's `detect_401k()`. For CSV/Excel positions and history files, calls `detect_broker()` to find the matching adapter. PDFs are extracted inline via `pypdf` — no separate batch file step needed.
 
 ### Phase 2: Market Intelligence Engine
-*   **Dynamic Candidate Scraper (`get_dynamic_etf_universe`):** Before scoring replacement funds, the engine fetches a live universe of 60-80 candidate ETFs and Mutual Funds directly from Yahoo Finance's screener pages (`finance.yahoo.com/etfs`, `/screener/predefined/top_mutual_funds`) using a lightweight `requests` + regex parser. If scraping fails, it falls back to a hardcoded baseline of 6 high-quality dividend funds. Individual equities returned by the scraper must be intercepted and dropped.
+*   **Dynamic Candidate Scraper (`get_dynamic_etf_universe`):** Before scoring replacement funds, the engine fetches a live universe of 60-80 candidate ETFs and Mutual Funds directly from Yahoo Finance's screener pages (`finance.yahoo.com/etfs`, `/screener/predefined/top_mutual_funds`) using a lightweight `requests` + regex parser. If scraping fails, it falls back to a hardcoded baseline of 24 funds covering all 4 routing buckets (Tax-Deferred, Roth IRA, Taxable Brokerage, Bond). Individual equities returned by the scraper must be intercepted and dropped.
 *   **Ticker Hook (`yfinance`):** Fetch live pricing, trailing 12-month dividend yields, beta, expense ratios, and historical average returns (1-Year, 3-Year, 5-Year, 10-Year where available) for all holdings and replacement candidates.
 *   **Portfolio Snapshot:** Generate a breakdown of allocations (Equities vs. Fixed Income vs. Cash) and a calculated weighted-average expense ratio.
 

@@ -278,12 +278,37 @@ def verify_cross_account_wash_sale_logic() -> bool:
     print("✅ Wash Sale Detection QA PASSED: Cross-account identical fund detection works.")
     return True
 
+def verify_asset_classification() -> bool:
+    """
+    Reality Check 7: Asset Classification QA.
+    Verifies that classify_asset_class() returns valid classes for known tickers,
+    using funds_data as primary source (not heuristics).
+    """
+    print("Running Asset Classification QA...")
+    test_cases = {
+        "SPY": "US Equity",
+        "AGG": "Bond",
+        "VXUS": "Intl Equity",
+    }
+    for ticker, expected in test_cases.items():
+        result = metrics.classify_asset_class(ticker)
+        if result != expected:
+            print(f"❌ Classification QA FAILED: {ticker} classified as '{result}', expected '{expected}'")
+            return False
+        if result == "UNCLASSIFIED":
+            print(f"❌ Classification QA FAILED: {ticker} returned UNCLASSIFIED")
+            return False
+    print(f"✅ Classification QA PASSED: {len(test_cases)} benchmark tickers classified correctly")
+    return True
+
+
 if __name__ == "__main__":
     api_ok = verify_yfinance_sane()
     screener_ok = verify_dynamic_screener()
     routing_ok = verify_asset_routing_logic()
     metrics_ok = verify_metrics_computation()
     wash_sale_ok = verify_cross_account_wash_sale_logic()
+    classification_ok = verify_asset_classification()
     
     data_dir = Path("Drop_Financial_Info_Here")
     positions_files = list(data_dir.glob("Portfolio_Positions*.csv"))
@@ -298,7 +323,7 @@ if __name__ == "__main__":
         df = parser.load_fidelity_positions(positions_files[0])
         ingest_ok = verify_ingestion(positions_files[0], df)
 
-    if api_ok and screener_ok and routing_ok and metrics_ok and wash_sale_ok and ingest_ok:
+    if api_ok and screener_ok and routing_ok and metrics_ok and wash_sale_ok and classification_ok and ingest_ok:
         print("\n✅ ALL QA CHECKS PASSED. Engine is safe to run.")
         sys.exit(0)
     else:

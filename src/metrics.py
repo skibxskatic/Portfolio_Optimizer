@@ -16,6 +16,7 @@ from typing import Optional, Dict, Any
 _price_cache: Dict[str, pd.DataFrame] = {}
 _info_cache: Dict[str, dict] = {}
 _risk_free_rate_cache: Optional[float] = None
+_funds_data_cache: Dict[str, Any] = {}
 
 
 def _get_price_history(ticker: str, period: str = "5y") -> Optional[pd.DataFrame]:
@@ -49,6 +50,20 @@ def _get_ticker_info(ticker: str) -> dict:
         return info
     except Exception:
         return {}
+
+
+def _get_funds_data(ticker: str):
+    """Fetches and caches yfinance .funds_data for a ticker. Returns None on failure."""
+    if ticker in _funds_data_cache:
+        return _funds_data_cache[ticker]
+    try:
+        t = yf.Ticker(ticker)
+        fd = t.funds_data
+        _funds_data_cache[ticker] = fd
+        return fd
+    except Exception:
+        _funds_data_cache[ticker] = None
+        return None
 
 
 def fetch_risk_free_rate() -> float:
@@ -188,10 +203,29 @@ def compute_max_drawdown(ticker: str, period: str = "5y") -> Optional[float]:
         return None
 
 
+def _classify_from_category(category: str) -> Optional[str]:
+    """Classifies asset class from a category string. Returns None if no match.
+    Order matters: Stable Value -> Bond -> Intl Equity -> US Equity."""
+    cat = category.lower()
+    if any(k in cat for k in ["money market", "stable value", "ultra-short", "ultrashort"]):
+        return "Stable Value"
+    if any(k in cat for k in ["bond", "fixed income", "intermediate",
+                               "government", "treasury", "inflation", "high yield"]):
+        return "Bond"
+    if any(k in cat for k in ["foreign", "international", "world", "global",
+                               "emerging", "europe", "pacific", "intl"]):
+        return "Intl Equity"
+    if any(k in cat for k in ["large", "mid", "small", "s&p", "nasdaq",
+                               "technology", "growth", "value", "blend"]):
+        return "US Equity"
+    return None
+
+
 def detect_benchmark(ticker: str) -> Optional[str]:
     """
     Attempts to detect the appropriate benchmark index for a fund.
-    Uses yfinance fund info fields to determine the benchmark.
+    Uses funds_data.fund_overview['categoryName'] as primary source,
+    falls back to yfinance .info fields.
     Returns the benchmark ticker symbol, or None if detection fails.
     """
     info = _get_ticker_info(ticker)
@@ -201,8 +235,17 @@ def detect_benchmark(ticker: str) -> Optional[str]:
     if benchmark and isinstance(benchmark, str) and len(benchmark) > 0:
         return benchmark
 
-    # 2. Infer from category
-    category = (info.get("category") or "").lower()
+    # 2. Get category from funds_data (primary) or info (fallback)
+    category = None
+    fd = _get_funds_data(ticker)
+    if fd is not None:
+        try:
+            category = (fd.fund_overview or {}).get('categoryName', '').lower()
+        except Exception:
+            pass
+    if not category:
+        category = (info.get("category") or "").lower()
+
     fund_name = (info.get("shortName") or "").lower()
 
     # Large-cap / S&P 500
@@ -223,8 +266,8 @@ def detect_benchmark(ticker: str) -> Optional[str]:
     if any(k in category for k in ["foreign", "international", "world", "global", "emerging"]):
         return "VXUS"  # Vanguard Total International
 
-    # Bond / Fixed Income
-    if any(k in category for k in ["bond", "fixed income", "income", "intermediate"]):
+    # Bond / Fixed Income — "income" removed (caused false matches on equity income funds)
+    if any(k in category for k in ["bond", "fixed income", "intermediate"]):
         return "AGG"  # iShares Core US Aggregate Bond
 
     # Nasdaq
@@ -240,45 +283,116 @@ def detect_benchmark(ticker: str) -> Optional[str]:
 
 def classify_asset_class(ticker: str) -> str:
     """
-    Classifies a fund into one of 4 broad asset classes using yfinance category
-    and fund name keywords: US Equity, Intl Equity, Bond, Stable Value.
-    Falls back to fund name heuristics, then defaults to US Equity.
+    Classifies a fund into one of 4 broad asset classes using yfinance data:
+      1. funds_data.fund_overview['categoryName'] (keyword match)
+      2. funds_data.asset_classes (quantitative thresholds)
+      3. info['category'] (fallback for ETFs)
+      4. Returns 'UNCLASSIFIED' + stderr warning if all fail
     """
-    info = _get_ticker_info(ticker)
-    category = (info.get("category") or "").lower()
-    fund_name = (info.get("shortName") or info.get("longName") or "").lower()
+    import sys
 
-    # Check category first (most reliable)
-    if category:
-        # Stable Value / Money Market
-        if any(k in category for k in ["money market", "stable value", "ultra-short", "ultrashort"]):
-            return "Stable Value"
-        # Bond / Fixed Income
-        if any(k in category for k in ["bond", "fixed income", "income", "intermediate",
-                                        "government", "treasury", "inflation", "high yield"]):
+    # Step 1: Try funds_data.fund_overview['categoryName']
+    fd = _get_funds_data(ticker)
+    category_name = None
+    asset_classes = None
+    if fd is not None:
+        try:
+            overview = fd.fund_overview
+            category_name = (overview or {}).get('categoryName')
+        except Exception:
+            pass
+        try:
+            asset_classes = fd.asset_classes
+        except Exception:
+            pass
+
+    if category_name:
+        result = _classify_from_category(category_name)
+        if result:
+            return result
+
+    # Step 2: Try asset_classes quantitative fallback
+    if asset_classes:
+        bond_pct = asset_classes.get('bondPosition', 0) or 0
+        stock_pct = asset_classes.get('stockPosition', 0) or 0
+        cash_pct = asset_classes.get('cashPosition', 0) or 0
+        if bond_pct >= 0.6:
             return "Bond"
-        # International Equity
-        if any(k in category for k in ["foreign", "international", "world", "global",
-                                        "emerging", "europe", "pacific"]):
-            return "Intl Equity"
-        # US Equity (large, mid, small, sector, etc.)
-        if any(k in category for k in ["large", "mid", "small", "s&p", "nasdaq",
-                                        "technology", "growth", "value", "blend"]):
+        if stock_pct >= 0.6:
+            if category_name and any(k in category_name.lower() for k in
+                    ["foreign", "international", "world", "global",
+                     "emerging", "europe", "pacific", "intl"]):
+                return "Intl Equity"
             return "US Equity"
-
-    # Fallback: fund name keywords
-    if fund_name:
-        if any(k in fund_name for k in ["money market", "stable value", "short-term",
-                                         "ultra-short", "prime"]):
+        if cash_pct >= 0.6:
             return "Stable Value"
-        if any(k in fund_name for k in ["bond", "fixed income", "income fund",
-                                         "treasury", "aggregate", "inflation"]):
-            return "Bond"
-        if any(k in fund_name for k in ["international", "foreign", "world", "global",
-                                         "emerging", "europe", "pacific", "intl"]):
-            return "Intl Equity"
 
-    return "US Equity"
+    # Step 3: Fall back to info['category'] (ETFs where funds_data may not exist)
+    info = _get_ticker_info(ticker)
+    info_category = info.get("category")
+    if info_category:
+        result = _classify_from_category(info_category)
+        if result:
+            return result
+
+    # Step 4: Fail with visibility
+    sys.stderr.write(f"WARNING: {ticker} could not be classified. "
+                     f"categoryName={category_name}, asset_classes={asset_classes}, "
+                     f"info.category={info_category}\n")
+    return "UNCLASSIFIED"
+
+
+def get_bond_metrics(ticker: str) -> Optional[Dict[str, Any]]:
+    """Returns bond-specific metrics (duration, maturity, ratings) or None."""
+    fd = _get_funds_data(ticker)
+    if fd is None:
+        return None
+    try:
+        result = {}
+        bh = fd.bond_holdings
+        if bh is not None and not bh.empty:
+            # bond_holdings DataFrame uses ticker as column name
+            col = ticker if ticker in bh.columns else bh.columns[0]
+            if 'Duration' in bh.index:
+                dur = bh.loc['Duration', col]
+                if dur is not None and not pd.isna(dur):
+                    result['duration'] = float(dur)
+            if 'Maturity' in bh.index:
+                mat = bh.loc['Maturity', col]
+                if mat is not None and not pd.isna(mat):
+                    result['maturity'] = float(mat)
+        br = fd.bond_ratings
+        if br:
+            result['ratings'] = br
+        return result if result else None
+    except Exception:
+        return None
+
+
+def get_sector_weightings(ticker: str) -> Optional[Dict[str, float]]:
+    """Returns sector weightings dict or None."""
+    fd = _get_funds_data(ticker)
+    if fd is None:
+        return None
+    try:
+        sw = fd.sector_weightings
+        return sw if sw else None
+    except Exception:
+        return None
+
+
+def get_top_holdings(ticker: str) -> Optional[list]:
+    """Returns list of (symbol, holding_percent) tuples or None."""
+    fd = _get_funds_data(ticker)
+    if fd is None:
+        return None
+    try:
+        th = fd.top_holdings
+        if th is not None and not th.empty:
+            return [(idx, row['Holding Percent']) for idx, row in th.iterrows()]
+        return None
+    except Exception:
+        return None
 
 
 def compute_tracking_error(ticker: str, benchmark: Optional[str] = None, period: str = "5y") -> Optional[float]:
@@ -448,10 +562,11 @@ def get_fund_metrics(ticker: str, account_type: str) -> Dict[str, Any]:
 
 def clear_cache():
     """Clears all internal caches. Useful between analysis runs."""
-    global _price_cache, _info_cache, _risk_free_rate_cache
+    global _price_cache, _info_cache, _risk_free_rate_cache, _funds_data_cache
     _price_cache = {}
     _info_cache = {}
     _risk_free_rate_cache = None
+    _funds_data_cache = {}
 
 
 if __name__ == "__main__":

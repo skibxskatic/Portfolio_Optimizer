@@ -1,0 +1,5 @@
+Account Name,Symbol,Description,Shares,Share Price,Current Value,Cost Basis
+Taxable Brokerage,VTI,Vanguard Total Stock Market ETF,12.0,$240.00,"$2,880.00","$2,400.00"
+Taxable Brokerage,VXUS,Vanguard Total Intl Stock ETF,20.0,$58.00,"$1,160.00","$1,000.00"
+Roth IRA,VOO,Vanguard S&P 500 ETF,6.0,$420.00,"$2,520.00","$2,200.00"
+Roth IRA,BND,Vanguard Total Bond Market ETF,25.0,$72.00,"$1,800.00","$1,850.00"

@@ -31,9 +31,19 @@ def get_dynamic_etf_universe() -> list[str]:
         except Exception:
             pass
             
-    # Always include a solid baseline of 1-3yr dividend funds 
-    # to guarantee safety matches if the regex misses during UI changes
-    for b in ["SCHD", "VYM", "SPYD", "VIG", "FDVV", "DGRO"]:
+    # Hardcoded baseline covering all 4 routing buckets so the optimizer
+    # has candidates even when the Yahoo Finance scraper returns nothing.
+    baseline = [
+        # Tax-Deferred (401k): high yield (≥ 2%) — dividend/income funds
+        "SCHD", "VYM", "SPYD", "VIG", "FDVV", "DGRO",
+        # Roth IRA: low yield + high beta (> 1.0) — growth/tech funds
+        "QQQ", "VGT", "ARKK", "VUG", "IWF", "SOXX",
+        # Taxable Brokerage: low yield + low beta (≤ 1.0) — broad market/index funds
+        "VOO", "VTI", "SPLG", "ITOT", "SPTM", "VT",
+        # Bond: bond funds — fixed income candidates
+        "BND", "AGG", "VGIT", "SCHZ", "TIP", "BNDX",
+    ]
+    for b in baseline:
         tickers.add(b)
         
     return list(tickers)
@@ -105,19 +115,65 @@ def fetch_ticker_metadata(tickers: list[str]) -> Dict[str, Dict[str, Any]]:
             # Compute precise beta from historical returns instead of yfinance .info
             computed_beta = metrics.compute_beta(ticker)
 
+            # Category average ER from fund_operations
+            category_avg_er = None
+            try:
+                fd_for_meta = metrics._get_funds_data(ticker)
+                if fd_for_meta is not None:
+                    fund_ops = fd_for_meta.fund_operations
+                    if fund_ops is not None and not fund_ops.empty:
+                        cat_avg_raw = fund_ops.loc['Annual Report Expense Ratio', 'Category Average']
+                        if cat_avg_raw is not None and not pd.isna(cat_avg_raw):
+                            category_avg_er = round(float(cat_avg_raw) * 100.0, 4)
+            except Exception:
+                pass
+
+            # Fund inception date → years since inception
+            inception_years = None
+            inception_ts = info.get("fundInceptionDate")
+            if inception_ts is not None:
+                from datetime import datetime
+                inception_years = round((datetime.now() - datetime.fromtimestamp(inception_ts)).days / 365.25, 1)
+
+            # Capital gains yield for tax efficiency
+            last_cg = info.get("lastCapGain")
+            prev_close = info.get("previousClose", 0.0)
+            cap_gain_yield = None
+            if last_cg is not None and prev_close and prev_close > 0:
+                cap_gain_yield = round(abs(last_cg) / prev_close, 4)
+
+            asset_class = metrics.classify_asset_class(ticker)
+
+            # Bond-specific metrics
+            bond_duration = None
+            bond_maturity = None
+            if asset_class == "Bond":
+                bm = metrics.get_bond_metrics(ticker)
+                if bm:
+                    bond_duration = bm.get("duration")
+                    bond_maturity = bm.get("maturity")
+
             metadata[ticker] = {
                 "name": info.get("shortName", ticker),
                 "type": info.get("quoteType", type_str),
                 "expense_ratio_pct": er_pct,
+                "category_avg_er": category_avg_er,
                 "yield": raw_yield,
-                "beta": computed_beta if computed_beta is not None else info.get("beta", 1.0),
+                "beta": computed_beta if computed_beta is not None else (info.get("beta3Year") or info.get("beta", 1.0)),
                 "previous_close": info.get("previousClose", 0.0),
                 "1y_return": ret_1y,
                 "3y_return": ret_3y,
                 "5y_return": ret_5y,
                 "net_of_fees_5y": metrics.compute_net_of_fees_return(ticker, "5y"),
                 "10y_return": metrics.compute_total_return(ticker, "10y"),
-                "asset_class": metrics.classify_asset_class(ticker),
+                "asset_class": asset_class,
+                "turnover": info.get("annualHoldingsTurnover"),
+                "morningstar_rating": info.get("morningStarOverallRating"),
+                "net_assets": info.get("netAssets") or info.get("totalAssets"),
+                "inception_years": inception_years,
+                "cap_gain_yield": cap_gain_yield,
+                "bond_duration": bond_duration,
+                "bond_maturity": bond_maturity,
             }
 
         except Exception as e:

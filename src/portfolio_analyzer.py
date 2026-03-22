@@ -69,11 +69,25 @@ def classify_routing_bucket(yld: float, beta: float) -> str:
     4-Bucket Tax Location Strategy.
     Classifies a fund into its optimal tax-location bucket.
     High-yield funds route to "Tax-Deferred" which covers both 401k and HSA.
+
+    Priority order (highest wins): Tax-Deferred → Roth IRA → Taxable Brokerage
+
+    Boundary behavior:
+      - yield == 2.0%: Tax-Deferred wins (>= threshold)
+      - yield < 2.0% and beta == 1.0: Taxable Brokerage wins (beta must be
+        strictly > 1.0 for Roth IRA)
+      - yield < 2.0% and beta > 1.0: Roth IRA
+      - Everything else: Taxable Brokerage (default/fallback bucket)
     """
+    # Priority 1: High yield (>= 2%) → shelter income in tax-deferred accounts.
+    # The >= means funds exactly at the 2% boundary route here, not to Roth.
     if yld >= 0.02:
         return "Tax-Deferred"
+    # Priority 2: Low yield + high growth (beta strictly > 1.0) → Roth IRA.
+    # Funds exactly at beta=1.0 fall through to Taxable Brokerage.
     elif yld < 0.02 and beta > 1.0:
         return "Roth IRA"
+    # Priority 3: Default — low yield + low/moderate beta → Taxable Brokerage.
     else:
         return "Taxable Brokerage"
 
@@ -189,6 +203,12 @@ def score_candidate(ticker: str, data: dict, routing_bucket: str, years_to_retir
             score = (nof * 40) + (sharpe * 30) + (low_yield_bonus * 20) + ((1 + max_dd) * 10)
         data.update({"sharpe_ratio": sharpe, "max_drawdown": max_dd})
 
+        # Turnover penalty: high-turnover funds generate more taxable cap gains
+        turnover = data.get("turnover")
+        if turnover is not None and turnover > 0.50:
+            penalty = min(0.10, (turnover - 0.50) * 0.20)
+            score *= (1 - penalty)
+
     elif routing_bucket == "Roth IRA":
         sortino = fund_metrics.get("sortino_ratio") or 0.0
         max_dd = fund_metrics.get("max_drawdown") or 0.0
@@ -225,8 +245,20 @@ def score_candidate(ticker: str, data: dict, routing_bucket: str, years_to_retir
             score = (nof * 35) + (sharpe * 35) + (te_penalty * 10)
         data.update({"sharpe_ratio": sharpe, "tracking_error": te})
 
+        # Bond duration penalty: near retirement, prefer shorter duration (less rate sensitivity)
+        if af is not None and af < 0.3:
+            bond_dur = data.get("bond_duration")
+            if bond_dur is not None and bond_dur > 5.0:
+                duration_penalty = min(0.10, (bond_dur - 5.0) * 0.02)
+                score *= (1 - duration_penalty)
+
     else:
         score = nof * 100
+
+    # Morningstar tiebreaker: small bonus for highly-rated funds (all buckets)
+    ms_rating = data.get("morningstar_rating")
+    if ms_rating is not None and ms_rating >= 4:
+        score *= 1 + (ms_rating - 3) * 0.025  # +2.5% for 4★, +5% for 5★
 
     data["score"] = round(score, 4)
     data["net_of_fees_5y"] = nof
@@ -350,33 +382,38 @@ def _render_verdict_table(df, metadata, age_factor) -> str:
         er_str = f"{er:.2f}%" if pd.notna(er) else "N/A"
 
         # Determine verdict and plain-English why
+        md_info = metadata.get(sym, {})
         if er is not None and er > 0.40:
-            nof = metadata.get(sym, {}).get('net_of_fees_5y')
+            nof = md_info.get('net_of_fees_5y')
             if nof is not None and nof > 0.08:
                 verdict = "**Evaluate**"
                 why = "Mixed signal: high fees but strong recent performance"
             else:
                 verdict = "**Replace**"
-                fee_drag = er / 100 if er else 0
                 why = f"Fees eroding ~{er:.2f}% of annual return vs alternatives"
+        elif er is not None:
+            cat_avg = md_info.get('category_avg_er')
+            if cat_avg is not None and cat_avg > 0 and er > 2 * cat_avg:
+                verdict = "**Evaluate**"
+                why = f"ER is {er/cat_avg:.1f}x category average ({cat_avg:.2f}%)"
+            else:
+                verdict = "Keep"
+                reasons = []
+                if er < 0.10:
+                    reasons.append("Low fees")
+                else:
+                    reasons.append("Reasonable fees")
+                nof = md_info.get('net_of_fees_5y')
+                if nof is not None and nof > 0.08:
+                    reasons.append("strong 5Y growth")
+                elif nof is not None and nof > 0.04:
+                    reasons.append("solid 5Y returns")
+                if md_info.get('asset_class') in ('Bond', 'Stable Value'):
+                    reasons.append("income/stability role")
+                why = ", ".join(reasons) if reasons else "Meets current criteria"
         else:
             verdict = "Keep"
-            reasons = []
-            if er is not None and er < 0.10:
-                reasons.append("Low fees")
-            elif er is not None:
-                reasons.append("Reasonable fees")
-            nof = metadata.get(sym, {}).get('net_of_fees_5y')
-            if nof is not None and nof > 0.08:
-                reasons.append("strong 5Y growth")
-            elif nof is not None and nof > 0.04:
-                reasons.append("solid 5Y returns")
-            md_info = metadata.get(sym, {})
-            if md_info.get('asset_class') in ('Bond', 'Stable Value'):
-                reasons.append("income/stability role")
-            if not reasons:
-                reasons.append("Meets current criteria")
-            why = ", ".join(reasons)
+            why = "Meets current criteria"
 
         # Check age flag
         flag = _get_age_flag_text(row, age_factor, metadata)
@@ -602,10 +639,19 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
         else:
             f.write("  - ✅ *Excellent: Your portfolio fees are highly optimized.*\n")
 
-        # Finding: High-ER holdings
+        # Finding: High-ER holdings (absolute + relative)
         high_er_count = len(df[df['Expense Ratio'].notna() & (df['Expense Ratio'] > 0.40)]) if 'Expense Ratio' in df.columns else 0
-        if high_er_count > 0:
-            findings.append({"category": "high_er", "text": f"**{high_er_count} holding(s)** have expense ratios above 0.40% — consider lower-cost alternatives", "section_ref": 2})
+        relative_er_count = 0
+        for _, row in df.iterrows():
+            sym = row.get('Symbol', '')
+            er = row.get('Expense Ratio')
+            if er is not None and er <= 0.40:
+                cat_avg = metadata.get(sym, {}).get('category_avg_er')
+                if cat_avg is not None and cat_avg > 0 and er > 2 * cat_avg:
+                    relative_er_count += 1
+        total_er_flags = high_er_count + relative_er_count
+        if total_er_flags > 0:
+            findings.append({"category": "high_er", "text": f"**{total_er_flags} holding(s)** have elevated expense ratios (above 0.40% or >2x category average) — consider lower-cost alternatives", "section_ref": 2})
         f.write(f"- **Risk-Free Rate (13-Week T-Bill):** `{rf*100:.2f}%` *(fetched live)*\n")
 
         # Portfolio Risk Profile — aggregate equity % vs glide-path target
@@ -642,13 +688,35 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
             if is_cash:
                 return "Core Cash Position"
 
-            # Net-of-fees expense evaluation
+            md_info = metadata.get(sym, {})
+            flags = []
+
+            # Net-of-fees expense evaluation (absolute threshold)
             if er is not None and er > 0.40:
-                nof = metadata.get(sym, {}).get('net_of_fees_5y')
+                nof = md_info.get('net_of_fees_5y')
                 if nof is not None:
-                    return f"**Evaluate** (ER {er:.2f}%, Net 5Y: {nof*100:.1f}%)"
-                return "**Replace (High ER)**. See *Alternatives* below."
-            return "Keep"
+                    flags.append(f"**Evaluate** (ER {er:.2f}%, Net 5Y: {nof*100:.1f}%)")
+                else:
+                    flags.append("**Replace (High ER)**. See *Alternatives* below.")
+            # Relative ER check: flag if >2x category average
+            elif er is not None:
+                cat_avg = md_info.get('category_avg_er')
+                if cat_avg is not None and cat_avg > 0 and er > 2 * cat_avg:
+                    flags.append(f"**Evaluate** (ER is {er/cat_avg:.1f}x category avg)")
+
+            # Small fund closure risk
+            net_assets = md_info.get('net_assets')
+            if net_assets is not None and net_assets < 100_000_000:
+                flags.append("⚠ Small fund (<$100M)")
+
+            # Cap gains risk for taxable accounts
+            account_type = resolve_account_type(row.get('Account Name', ''))
+            if account_type == "Taxable Brokerage":
+                cgy = md_info.get('cap_gain_yield')
+                if cgy is not None and cgy > 0.05:
+                    flags.append("*High cap gains risk*")
+
+            return " | ".join(flags) if flags else "Keep"
 
         def get_age_flag(row, age_factor, metadata):
             """Returns italic age-appropriate flag text, or empty string."""
@@ -685,8 +753,8 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
                 f.write(f"> 📋 {k401_count} fund(s) held in your 401k. See **Section 5: 401k Plan Analysis** for detailed scoring, rebalance opportunities, and underperforming holdings.\n")
                 continue
 
-            f.write("| Symbol | Account Name | Description | Current ER | Suggested Action |\n")
-            f.write("|---|---|---|---|---|\n")
+            f.write("| Symbol | Account Name | Description | Current ER | Cat Avg | Rating | Suggested Action |\n")
+            f.write("|---|---|---|---|---|---|---|\n")
 
             for idx, row in group.iterrows():
                 sym = row.get('Symbol', '')
@@ -698,12 +766,81 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
                     er = 0.0
                 action += get_age_flag(row, age_factor, metadata)
                 er_str = f"{er:.3f}%" if pd.notna(er) else "N/A"
-                f.write(f"| {sym} | {account_name} | {desc} | {er_str} | {action} |\n")
+                md_info = metadata.get(sym, {})
+                cat_avg = md_info.get('category_avg_er')
+                cat_avg_str = f"{cat_avg:.3f}%" if cat_avg is not None else "--"
+                ms = md_info.get('morningstar_rating')
+                ms_str = "★" * ms if ms is not None else "--"
+                f.write(f"| {sym} | {account_name} | {desc} | {er_str} | {cat_avg_str} | {ms_str} | {action} |\n")
 
         # Finding: Age-inappropriate holdings
         age_inappropriate_count = sum(1 for _, row in df.iterrows() if _get_age_flag_text(row, age_factor, metadata))
         if age_inappropriate_count > 0:
             findings.append({"category": "age_inappropriate", "text": f"**{age_inappropriate_count} holding(s)** may be age-inappropriate for your investment horizon", "section_ref": 2})
+
+        # --- Section 2a: Portfolio Concentration Analysis ---
+        f.write("\n### Portfolio Concentration Analysis\n\n")
+
+        # Aggregate sector exposure across held tickers, weighted by portfolio value
+        total_portfolio_val = df['Current Value'].sum() if 'Current Value' in df.columns else 0
+        agg_sectors = {}
+        holdings_overlap = {}  # symbol -> [(ticker, pct)]
+        tickers_with_sectors = 0
+        for _, row in df.iterrows():
+            sym = row.get('Symbol', '')
+            val = row.get('Current Value', 0)
+            if pd.isna(sym) or sym == 'CORE' or str(sym).endswith("XX") or val <= 0:
+                continue
+            weight = val / total_portfolio_val if total_portfolio_val > 0 else 0
+            sw = metrics.get_sector_weightings(sym)
+            if sw:
+                tickers_with_sectors += 1
+                for sector, pct in sw.items():
+                    agg_sectors[sector] = agg_sectors.get(sector, 0) + pct * weight
+            th = metrics.get_top_holdings(sym)
+            if th:
+                for held_sym, held_pct in th:
+                    if held_sym not in holdings_overlap:
+                        holdings_overlap[held_sym] = []
+                    holdings_overlap[held_sym].append((sym, held_pct))
+
+        if agg_sectors and tickers_with_sectors > 0:
+            # Normalize sector names for display
+            sector_names = {
+                'realestate': 'Real Estate', 'consumer_cyclical': 'Consumer Cyclical',
+                'basic_materials': 'Basic Materials', 'consumer_defensive': 'Consumer Defensive',
+                'technology': 'Technology', 'communication_services': 'Communication Services',
+                'financial_services': 'Financial Services', 'utilities': 'Utilities',
+                'industrials': 'Industrials', 'energy': 'Energy', 'healthcare': 'Healthcare',
+            }
+            sorted_sectors = sorted(agg_sectors.items(), key=lambda x: x[1], reverse=True)
+
+            f.write("| Sector | Exposure | Status |\n")
+            f.write("|---|---|---|\n")
+            concentrated = False
+            for sector_key, pct in sorted_sectors:
+                if pct < 0.01:
+                    continue
+                name = sector_names.get(sector_key, sector_key.replace('_', ' ').title())
+                status = "⚠️ **Concentrated**" if pct > 0.40 else ("Elevated" if pct > 0.25 else "")
+                if pct > 0.40:
+                    concentrated = True
+                f.write(f"| {name} | {pct*100:.1f}% | {status} |\n")
+
+            if concentrated:
+                findings.append({"category": "concentration", "text": "Portfolio has concentrated sector exposure (>40% in a single sector)", "section_ref": 2})
+            f.write("\n")
+        else:
+            f.write("*Sector data not available for current holdings.*\n\n")
+
+        # Holding overlap detection
+        overlaps = {sym: funds for sym, funds in holdings_overlap.items() if len(funds) >= 2}
+        if overlaps:
+            f.write("**Holding Overlap:** The following stocks appear in multiple funds:\n\n")
+            for held_sym, funds in sorted(overlaps.items(), key=lambda x: len(x[1]), reverse=True)[:10]:
+                fund_strs = [f"{t} ({p*100:.1f}%)" for t, p in funds]
+                f.write(f"- **{held_sym}** in {', '.join(fund_strs)}\n")
+            f.write("\n")
 
         # --- Section 3: Tax Optimization ---
         f.write("\n## 3. Tax Optimization & Loss Harvesting\n")
@@ -914,9 +1051,13 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
                 elif age_factor > 0.7 and cand_ac in ("Bond", "Stable Value"):
                     cand["score"] = round(cand["score"] * 0.85, 4)
 
-            # Flag funds with < 3 years of price history — scored on limited data
-            history_days = metrics.get_history_days(ticker)
-            cand["insufficient_history"] = history_days < 1095
+            # Flag funds with < 3 years of history — prefer inception date, fall back to price data
+            inception_yrs = candidate_data.get(ticker, {}).get("inception_years")
+            if inception_yrs is not None:
+                cand["insufficient_history"] = inception_yrs < 3.0
+            else:
+                history_days = metrics.get_history_days(ticker)
+                cand["insufficient_history"] = history_days < 1095
 
             if routing == "Roth IRA":
                 if is_dynamic:
@@ -1237,8 +1378,8 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
                     sym = row.get('Symbol', '')
                     held_pcts[sym] = round(row.get('Current Value', 0) / total_401k * 100, 1)
 
-            f.write("| Ticker | Fund Name | Asset Class | Current % | Target % | Change | Action |\n")
-            f.write("|---|---|---|---|---|---|---|\n")
+            f.write("| Ticker | Fund Name | Asset Class | Duration | Current % | Target % | Change | Action |\n")
+            f.write("|---|---|---|---|---|---|---|---|\n")
 
             for row in sorted(alloc_rows, key=lambda x: x["target_pct"], reverse=True):
                 ticker = row["ticker"]
@@ -1255,8 +1396,12 @@ def generate_privacy_report(positions_path=None, history_path=None, report_path=
                 else:
                     action = "Hold"
 
+                # Bond duration column (only meaningful for bond funds)
+                dur = candidate_data.get(ticker, {}).get("bond_duration")
+                dur_str = f"{dur:.1f}yr" if dur is not None else "--"
+
                 delta_str = f"{delta:+.1f}%" if current_pct > 0 else f"+{target_pct:.1f}%"
-                f.write(f"| **{ticker}** | {row['name']} | {row['asset_class']} | {current_pct:.1f}% | {target_pct:.1f}% | {delta_str} | {action} |\n")
+                f.write(f"| **{ticker}** | {row['name']} | {row['asset_class']} | {dur_str} | {current_pct:.1f}% | {target_pct:.1f}% | {delta_str} | {action} |\n")
 
             # Funds currently held but not in target allocation
             target_tickers = {r["ticker"] for r in alloc_rows}
