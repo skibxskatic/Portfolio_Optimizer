@@ -203,9 +203,26 @@ def compute_max_drawdown(ticker: str, period: str = "5y") -> Optional[float]:
         return None
 
 
+def compute_stability_score(ticker: str) -> Optional[float]:
+    """
+    Stability score (0-100). Higher = more stable/less volatile.
+    Components: inverse max drawdown (0-50 pts) + inverse beta (0-50 pts).
+    """
+    max_dd = compute_max_drawdown(ticker, "5y")
+    beta = compute_beta(ticker, period="1y")
+    if max_dd is None and beta is None:
+        return None
+    # Inverse drawdown: dd is negative, so (1 + dd) gives 0-1 range
+    dd_component = (1 + (max_dd or -0.30)) * 50    # 50 pts max
+    # Inverse beta: lower beta = more stable
+    beta_val = beta if beta is not None else 1.0
+    beta_component = max(0, (2.0 - beta_val)) * 25  # 50 pts max at beta=0
+    return round(dd_component + beta_component, 2)
+
+
 def _classify_from_category(category: str) -> Optional[str]:
     """Classifies asset class from a category string. Returns None if no match.
-    Order matters: Stable Value -> Bond -> Intl Equity -> US Equity."""
+    Order matters: Stable Value -> Bond -> Intl Equity -> US Equity -> Alternative."""
     cat = category.lower()
     if any(k in cat for k in ["money market", "stable value", "ultra-short", "ultrashort"]):
         return "Stable Value"
@@ -216,7 +233,15 @@ def _classify_from_category(category: str) -> Optional[str]:
                                "emerging", "europe", "pacific", "intl"]):
         return "Intl Equity"
     if any(k in cat for k in ["large", "mid", "small", "s&p", "nasdaq",
-                               "technology", "growth", "value", "blend"]):
+                               "technology", "growth", "value", "blend",
+                               "equity", "stock", "sector", "target-date",
+                               "target date", "allocation"]):
+        return "US Equity"
+    # Alternative assets (commodities, crypto, real estate) -- route as US Equity
+    # for scoring purposes since they behave like growth/speculative holdings
+    if any(k in cat for k in ["commodit", "digital asset", "crypto",
+                               "real estate", "reit", "natural resources",
+                               "precious metal", "alternative"]):
         return "US Equity"
     return None
 
@@ -283,11 +308,13 @@ def detect_benchmark(ticker: str) -> Optional[str]:
 
 def classify_asset_class(ticker: str) -> str:
     """
-    Classifies a fund into one of 4 broad asset classes using yfinance data:
+    Classifies a ticker into one of 4 broad asset classes using yfinance data:
       1. funds_data.fund_overview['categoryName'] (keyword match)
       2. funds_data.asset_classes (quantitative thresholds)
       3. info['category'] (fallback for ETFs)
-      4. Returns 'UNCLASSIFIED' + stderr warning if all fail
+      4. info['quoteType'] (individual stocks, warrants)
+      5. KNOWN_ZERO_ER_TICKERS (money-market funds)
+      6. Returns 'UNCLASSIFIED' + stderr warning if all fail
     """
     import sys
 
@@ -335,7 +362,20 @@ def classify_asset_class(ticker: str) -> str:
         if result:
             return result
 
-    # Step 4: Fail with visibility
+    # Step 4: Individual stocks/warrants — classify by quoteType
+    quote_type = info.get("quoteType", "")
+    if quote_type in ("EQUITY", "WARRANT"):
+        country = (info.get("country") or "").lower()
+        if country and country not in ("united states", "usa", "us", ""):
+            return "Intl Equity"
+        return "US Equity"
+
+    # Step 5: Known money-market / cash-equivalent tickers
+    from market_data import KNOWN_ZERO_ER_TICKERS
+    if ticker in KNOWN_ZERO_ER_TICKERS:
+        return "Stable Value"
+
+    # Step 6: Fail with visibility
     sys.stderr.write(f"WARNING: {ticker} could not be classified. "
                      f"categoryName={category_name}, asset_classes={asset_classes}, "
                      f"info.category={info_category}\n")
