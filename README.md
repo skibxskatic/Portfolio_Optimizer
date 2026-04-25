@@ -5,11 +5,11 @@ A local, privacy-first tool designed to analyze your investment portfolio, ident
 ## Getting Started
 It's designed to be extremely easy to use:
 1. Drop your financial CSVs (and 401k Investment Options PDF) into the `Drop_Financial_Info_Here/` folder.
-2. **Windows:** Double-click `Portfolio_Optimizer.bat`. **macOS:** Double-click `Portfolio_Optimizer_Mac.app`.
-3. Your analysis will automatically pop open as a PDF!
+2. **Windows:** Double-click `Portfolio_Optimizer.ps1`. **macOS:** Double-click `Portfolio_Optimizer_Mac.app`.
+3. Your analysis will automatically pop open as an interactive HTML report!
 
 The launcher will auto-create a virtual environment and install all dependencies if one doesn't already exist.
 
-For more detailed instructions, please read [How to Use](docs/HOW_TO_USE.md).
+For more detailed instructions, please read [[HOW_TO_USE]].
 
-Curious about how the math, scoring, and tax routing actually works behind the scenes? Read our plain-English guide: [How it Works (For Non-Technical Users)](docs/HOW_IT_WORKS.md).
+Curious about how the math, scoring, and tax routing actually works behind the scenes? Read our plain-English guide: [[HOW_IT_WORKS|How it Works (For Non-Technical Users)]].

@@ -1,8 +1,13 @@
 # How the Portfolio Optimizer Works (A Guide for Non-Technical Users)
 
-Welcome! If you're wondering what exactly is happening behind the scenes when you double-click the `Portfolio_Optimizer.bat` file, this guide is for you. 
+> [!INFO] Rules
+> See [[CONSTRAINTS]] for the technical and architectural guardrails.
 
-We've designed this tool to act like a mathematically rigorous, entirely private, and incredibly fast financial advisor. It runs on both **Windows** (`Portfolio_Optimizer.bat`) and **macOS** (`Portfolio_Optimizer_Mac.app`). Here is a plain-English explanation of exactly how it evaluates your portfolio.
+Welcome! If you're wondering what exactly is happening behind the scenes when you double-click the `Portfolio_Optimizer.ps1` file, this guide is for you. 
+
+We've designed this tool to act like a mathematically rigorous, entirely private, and incredibly fast financial advisor. It runs on both **Windows** (`Portfolio_Optimizer.ps1`) and **macOS** (`Portfolio_Optimizer_Mac.app`).
+
+For quick data maintenance without running a full analysis, you can use the **`Check_History_Health.ps1`** tool in the project folder.
 
 ---
 
@@ -12,6 +17,17 @@ The very first thing the Optimizer does is read the CSV and PDF files you droppe
 
 **This happens entirely on your local computer.** The Optimizer never uploads your account balances, the number of shares you own, or your account numbers to the internet. The only information it requests from the internet (specifically from Yahoo Finance) is public, generalized data—like "What is the current price of SPY?" or "What is the expense ratio of FXAIX?".
 
+## 1a. Automatic Repo Hygiene
+
+To keep your workspace clean, the Optimizer automatically **consolidates your transaction history**. If you drop multiple `Accounts_History` CSV files into the folder, the engine will merge them into a single, deduplicated master file named with the date range of your data (e.g., `Accounts_History_CONSOLIDATED_2020_to_2026.csv`). The individual files are then moved to an `archived/` folder automatically.
+
+## 1b. Pre-Flight History Range Check
+
+Before the heavy processing begins, the Optimizer scans your consolidated history and reports the **exact date range** it covers (e.g., *2020-05-14 to 2026-03-12*). 
+- It tells you exactly how far back you need to go to cover your oldest purchases.
+- It calculates the **percentage of your portfolio missing history** and flags it in the report summary.
+- It provides an interactive pause, allowing you to stop and collect more data if you see a gap.
+
 ## 2. Pre-Flight "Reality Checks"
 
 Before the Optimizer gives you any advice, it runs a series of **Quality Assurance (QA) checks** to make sure the data it pulled from the internet isn't broken or corrupted. 
@@ -20,12 +36,20 @@ Before the Optimizer gives you any advice, it runs a series of **Quality Assuran
 
 ## 3. The 4-Bucket "Smart Routing" Strategy
 
-Not all investment accounts are taxed the same way. The Optimizer uses a **4-Bucket Strategy** to decide which funds belong in which accounts to save you the most money on taxes over your lifetime:
+Not all investment accounts are taxed the same way. The Optimizer uses a **5-Tier Stable Routing Strategy** to decide which funds belong in which accounts. This hierarchy ensures that your core investments (like the S&P 500) don't jump between accounts just because the market was volatile last week:
 
-1. **Roth IRA (Maximum Growth):** You never pay taxes on Roth IRA withdrawals. Therefore, the Optimizer wants to put your highest-growth, most aggressive funds here. It doesn't care if the fund is volatile, as long as it makes the most money over the long term.
-2. **Employer 401k (Income & Dividends — Plan-Constrained):** Your 401k is "tax-deferred" and limited to funds your employer offers. The Optimizer looks for high-yield, dividend-paying funds within your plan menu.
-3. **HSA (Maximum Growth — Full Universe):** Your HSA has a *triple* tax advantage (contributions, growth, and qualified withdrawals are all tax-free). Because all growth is permanently tax-free and you can invest in any fund on the market, the Optimizer treats your HSA the same as your Roth IRA — scoring it for *maximum long-term compounding* (Sortino Ratio + 5Y Net Return + 10Y Total Return), not income generation. This is where your biggest long-term growers belong.
-4. **Taxable Brokerage (Tax-Efficient Growth):** You pay taxes on every dollar this account generates in dividends or capital gains. The Optimizer strictly looks for "tax-efficient" funds here — meaning funds that grow steadily but pay very little in dividends, minimizing your yearly tax bill.
+1. **Golden Whitelist:** Your most foundational funds (like VTI, VOO, or QQQ) are permanently "locked" to their most tax-efficient accounts.
+2. **High-Yield Anchors:** Certain types of investments that pay high dividends (like REITs or BDCs) are automatically routed to your 401k to avoid huge tax bills.
+3. **Category Anchoring:** The Optimizer looks at the *long-term category* of a fund (e.g., "Technology" vs. "Bonds") to decide where it belongs.
+4. **3-Year Volatility Check:** For all other funds, it looks at 3 full years of data to ensure its routing decision is based on long-term behavior, not a short-term market spike.
+5. **Default Taxable:** Anything it doesn't recognize defaults to your taxable account for safety.
+
+**The result is a "Fluctuation-Proof" strategy:**
+
+- **Roth IRA (Maximum Growth):** Your highest-growth, most aggressive funds belong here. All growth is permanently tax-free.
+- **Employer 401k (Income & Dividends):** High-yield funds that pay dividends belong here so those dividends aren't taxed every year.
+- **HSA (Triple-Tax Growth):** Since all growth is tax-free and you can invest in anything, the Optimizer treats your HSA like a second Roth IRA — focusing on maximum long-term growth.
+- **Taxable Brokerage (Tax-Efficient Growth):** Only funds that grow steadily with very low dividends belong here, minimizing your annual tax drag.
 
 ## 4. Grading Your Current Funds
 
@@ -74,35 +98,46 @@ If you have a 401k plan, the Optimizer goes one step further: it tells you **exa
    - **At retirement:** 50% stocks / 50% bonds
    - **7 years past retirement:** 30% stocks / 70% bonds
 
-3. **Fund Classification:** The Optimizer automatically categorizes every fund in your employer's plan into one of four asset classes: US Equity, International Equity, Bonds, or Stable Value. It does this using the fund's official category data from Yahoo Finance.
+3. **Fund Classification:** The Optimizer automatically categorizes every fund in your employer's plan and determines your **Plan Objective** (e.g., "Maximum Growth" for young investors vs. "Income & Stability" for those near retirement).
 
-4. **Score-Weighted Allocation:** Within each asset class, the top-scoring funds (from the Plan Menu Scorecard) receive a larger share of the allocation. Every recommended fund gets at least a 5% minimum allocation to ensure meaningful diversification.
+4. **Score-Weighted Allocation:** Within each asset class, the top-scoring funds receive a larger share of the allocation. Every recommended fund gets at least a 5% minimum allocation.
 
 5. **The Recommendation Table:** The report shows a clear table with each recommended fund, its asset class, your current percentage, the target percentage, the change needed, and a simple action word (Add, Increase, Reduce, Hold, or Remove).
 
-## 8. Age-Aware Personalization
+## 8. Age-Aware Personalization & Risk Tolerance
 
 Beyond 401k allocation, the Optimizer uses your investor profile to personalize recommendations across **every** account type:
 
+- **Risk Tolerance:** You can set your risk tolerance in your investor profile (`very_conservative` through `very_aggressive`). If you don't, the Optimizer auto-calculates it from your age and retirement year. This controls how the Optimizer balances fund *performance* against fund *stability* — conservative investors get recommendations that prioritize steadiness, while aggressive investors get maximum-growth picks.
+- **Stability Score:** Every fund receives a stability score (0-100) based on how small its worst crash was and how closely it tracks the overall market. This is blended with the performance score based on your risk tolerance.
 - **Risk-Calibrated Scoring:** The mathematical weights used to score replacement funds shift based on how many years you have until retirement. Young investors get higher weight on growth metrics; near-retirement investors get higher weight on risk and drawdown metrics.
 - **Portfolio Risk Profile:** Section 1 of the report compares your actual equity allocation (across all accounts) to the target for your age, flagging if rebalancing is needed.
 - **Holdings Flags:** If you hold conservative funds (bonds, stable value) in a growth account like Roth IRA when you're young, or aggressive high-beta funds when you're near retirement, the report flags it in the Suggested Action column.
 - **Replacement Penalties:** Replacement fund candidates that are age-inappropriate for your Roth IRA (e.g., bonds for young investors, high-beta for near-retirement) receive a soft scoring penalty.
 - **TLH Urgency:** Tax-loss harvesting candidates are labeled with urgency levels — "High" for near-retirement investors who have a shorter window to utilize harvested losses.
 
+## 8a. Portfolio Rebalancing Plan (Section 5f)
+
+The Optimizer now tells you **exactly how to allocate** your uninvested cash across recommended funds for each account:
+
+1. **Core Position Detection:** If you have money sitting in a money-market fund (like SPAXX or FDRXX), the Optimizer automatically detects it and treats it as deployable cash.
+2. **Score-Weighted Allocation:** For each account (Roth IRA, Taxable Brokerage, HSA), the Optimizer takes the top-scoring recommended funds and assigns each a target allocation percentage based on its score. Every fund gets at least 5% to maintain diversification.
+3. **Existing Holdings Comparison:** If you already hold funds in the account, the report shows how each existing fund's key metric (Sortino for Roth/HSA, Sharpe for Taxable) compares against the top recommendation, so you can decide whether to keep or replace.
+4. **Manual Override:** You can specify exact contribution amounts in your investor profile instead of relying on auto-detection.
+
 ## 9. Saving You Taxes (Harvesting & Capital Gains)
 
 Finally, it looks at the exact day you bought every single share in your **taxable accounts**:
 * **Tax Snapshot:** At the top of the Tax Optimization section, the report shows a one-line summary: the number of positions with harvestable losses and their total estimated value, plus the number of positions with pending short-term capital gains exposure.
-* **Tax-Loss Harvesting:** If you bought shares in a taxable account that have gone down in value, the Optimizer will flag them. Selling these specific "underwater" shares allows you to deduct the loss from your taxes, saving you money on April 15th. **Note:** Only your taxable brokerage accounts (e.g., INDIVIDUAL, Melissa Investments) appear here — losses inside a Roth IRA, HSA, or 401k have zero tax benefit and are intentionally excluded.
-* **The "One-Year Wait" Screener:** If you bought shares less than a year ago that have gone *up* in value, selling them now will trigger massive "Short-Term Capital Gains" taxes. The Optimizer flags these shares and tells you exactly how many are safely past the 1-year mark (Long-Term Capital Gains) and how many you should wait to sell.
+* **Tax-Loss Harvesting:** If you bought shares in a taxable account that have gone down in value, the Optimizer will flag them. Selling these "underwater" shares allows you to deduct the loss from your taxes. The Optimizer **prioritizes these by dollar impact**, showing you exactly how much you can save in taxes (Estimated Tax Savings).
+* **The "One-Year Wait" Screener:** If you bought shares less than a year ago that have gone *up* in value, selling them now will trigger high "Short-Term Capital Gains" taxes. The Optimizer flags these and tells you exactly how many are safely past the 1-year mark.
 * **The "De Minimis" Override:** If you have a short-term gain that is incredibly tiny (less than 1% of the value of the shares), the Optimizer will flag it as "Safe to Reallocate." The tax hit is so small that it's mathematically better to just sell it now and move the money into a better fund.
 
 ## 10. The Final Report
 
 The Optimizer takes all of this math and bundles it into two report formats:
 
-* **Interactive HTML Report** — Opens automatically in your browser with a clickable table of contents, collapsible methodology sections, and professional styling. This is the primary way to read your report.
+* **Interactive HTML Report** — Opens automatically in your browser with a **sticky sidebar table of contents** that highlights your current section as you scroll, collapsible methodology sections, and professional styling. This is the primary way to read your report.
 * **PDF Report** — A continuous, single-page PDF saved alongside the HTML for offline sharing or printing.
 
-The report starts with an **Executive Summary** (3-5 auto-generated bullets highlighting what matters most), includes all the detailed analysis in Sections 1-5, then closes with **Next Steps** (exactly what to do, with tax context) and **Why These Recommendations** (a plain-English verdict for every holding).
+The report starts with an **Executive Summary** featuring a ⚡ **Immediate Execution Steps** table (your highest-priority actions and their tax impact), followed by detailed analysis in Sections 1-5, then closes with **Next Steps** and **Why These Recommendations**.

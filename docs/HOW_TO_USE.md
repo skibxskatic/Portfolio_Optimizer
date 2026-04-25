@@ -33,21 +33,43 @@ The engine supports **Fidelity, Schwab, Vanguard, T. Rowe Price, and Principal**
 
 ### Investor Profile
 
-The Optimizer uses your birth year and retirement year to personalize recommendations across **all** account types — not just 401k. Create a plain text file called `investor_profile.txt` in the `Drop_Financial_Info_Here/` folder:
+The Optimizer uses your investor profile to personalize recommendations across **all** account types. A template is auto-generated on first run. You can also create `investor_profile.txt` manually in `Drop_Financial_Info_Here/`:
 
 ```
 birth_year = 1985
 retirement_year = 2050
+risk_tolerance = moderate
+state = CA
+roth_ira_contribution = 7000
+taxable_contribution = 50000
+hsa_contribution = 4150
+401k_contribution = 23000
 ```
 
+**All fields are optional.** Available settings:
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| `birth_year` | Your birth year | 1990 |
+| `retirement_year` | Target retirement year | 2057 |
+| `risk_tolerance` | `very_conservative`, `conservative`, `moderate`, `aggressive`, `very_aggressive` | Auto from age |
+| `state` | 2-letter state code for tax estimates (e.g., `CA`, `TX`) | Federal only |
+| `roth_ira_contribution` | Roth IRA cash to deploy ($) | $0 (auto-detect from CSV) |
+| `taxable_contribution` | Taxable brokerage cash to deploy ($) | $0 (auto-detect from CSV) |
+| `hsa_contribution` | HSA cash to deploy ($) | $0 (auto-detect from CSV) |
+| `401k_contribution` | 401k contribution amount ($) | $0 (auto-detect from CSV) |
+
 This enables:
-- **Age-calibrated scoring** — fund evaluation weights shift based on your time horizon (e.g., near-retirement investors get heavier drawdown penalties)
+- **Age-calibrated scoring** — fund evaluation weights shift based on your time horizon
+- **Risk-tolerance blending** — blends performance score with stability score (lower volatility preference for conservative investors)
 - **Portfolio Risk Profile** — compares your actual equity allocation to the glide-path target for your age
-- **Holdings flags** — warns when holdings are mismatched to your horizon (e.g., bonds in a young investor's Roth IRA)
+- **Holdings flags** — warns when holdings are mismatched to your horizon
 - **TLH urgency** — near-retirement investors see elevated harvesting priority
 - **401k allocation targets** — personalized equity/bond split and per-fund percentages
+- **Per-account allocation plan** — Section 5f shows exactly how much to allocate to each recommended fund
+- **Tax estimates** — state tax rate applied to rebalancing tax impact calculations
 
-> **Note:** If this file is absent, the Optimizer uses default assumptions (born 1990, retiring 2057) and notes it in the report. The launchers will display a warning reminding you to create it. You can update this file at any time — the Optimizer reads it fresh each run.
+> **Note:** If this file is absent, the Optimizer auto-generates a template and uses default assumptions. The **interactive launchers** (Windows `.bat` / macOS `.app`) will guide you through setting up your profile on first run, and show your current profile with an option to edit on subsequent runs.
 
 ## 2. Place Your Data in the Project
 For the privacy and security of your financial data, the downloaded files MUST be placed in the local `Drop_Financial_Info_Here/` folder. This folder is explicitly ignored by version control (Git) so your balances will never be uploaded to the cloud.
@@ -62,11 +84,16 @@ The Optimizer generates a comprehensive Markdown report with all findings.
 ### Option A: The One-Click Executable (Recommended)
 Launch the Optimizer in a single click without opening a terminal or configuring execution policies:
 
-**Windows:**
+Windows:
 1. Open your File Explorer and navigate to the `Portfolio_Optimizer` folder.
-2. Double-click **`Portfolio_Optimizer.bat`** (the file with the gear/window icon).
+2. Double-click **`Portfolio_Optimizer.ps1`** (the file with the gear/window icon).
+3. **Pre-Flight History Check:** The script will instantly show you the **date range** of your current transaction data and alert you to any gaps before starting the full analysis.
 
-**macOS:**
+For a quick **Hygiene Check** (consolidate files and see date range without running the optimizer), use:
+- **`Check_History_Health.ps1`** (Windows)
+
+macOS:
+
 1. Open Finder and navigate to the `Portfolio_Optimizer` folder.
 2. Double-click **`Portfolio_Optimizer_Mac.app`**.
    - On first launch, macOS may warn about an unidentified developer. Go to **System Settings → Privacy & Security** and click **"Open Anyway"** (one-time).
@@ -94,7 +121,8 @@ py src\portfolio_analyzer.py
 
 The report contains:
 
-1. **High-Level Metrics** — Weighted average expense ratio, live risk-free rate, and a Portfolio Risk Profile comparing your equity allocation to the target for your age.
+1. **Executive Summary** — Features a ⚡ **Immediate Execution Steps** table highlighting highest-priority actions, priority level, and estimated tax impact, followed by auto-generated summary bullets.
+2. **High-Level Metrics** — Weighted average expense ratio, live risk-free rate, and a Portfolio Risk Profile comparing your equity allocation to the target for your age.
 2. **Asset Holding Breakdown** — Positions grouped under sub-headers by account type (Taxable Brokerage, Roth IRA, HSA) with suggested actions and age-appropriate horizon flags. 401k holdings are shown as a summary with a pointer to Section 5.
 3. **Tax Optimization** — Tax-loss harvesting candidates, capital gains screener, and de minimis override flags.
 4. **Recommended Replacements** — Four separate tables:
@@ -103,7 +131,7 @@ The report contains:
    - 🏥 **HSA** — Maximum growth, full universe (scored by Sortino Ratio + Net-of-Fees 5Y + 10Y Total Return — same tier as Roth IRA)
    - 🏦 **Taxable Brokerage** — Tax-efficient growth funds (scored by Sharpe + low yield)
    - Each table may include an **"Emerging Funds"** sub-section for funds with < 3 years of history, labeled `⚠️ < 3Y History`.
-5. **401k Plan Analysis** *(If 401k PDF is provided)* — Dedicated scorecard ranking every fund in your employer's plan, highlighting Rebalance Opportunities, Underperforming Holdings, and an age-aware **Recommended Allocation** table with target percentages based on your glide-path profile.
+5. **401k Plan Analysis** *(If 401k PDF is provided)* — Dedicated scorecard ranking every fund in your employer's plan, highlighting Rebalance Opportunities, Underperforming Holdings, and an age-aware **Recommended Allocation** table (Section 5e) with target percentages based on your glide-path profile. **Portfolio Rebalancing Plan** (Section 5f) — per-account allocation tables for Roth IRA, Taxable Brokerage, and HSA showing Score, Stability, Allocation %, pertinent metric comparison, and existing holdings evaluation.
 6. **Next Steps** — Contextual action items grouped by category: high-ER replacements with tax context, TLH actions with wash-sale warnings, 401k rebalancing, and age-inappropriate holdings.
 7. **Why These Recommendations** — A plain-English verdict table (Keep/Replace/Evaluate per holding with human-readable "Why"), plus a collapsible methodology section explaining each metric, per-account scoring, and age-aware adjustments.
 
@@ -133,7 +161,7 @@ The checks that run automatically:
 ```bash
 py src\validator.py
 ```
-This also runs the **Metrics Computation QA** check (Sharpe/Sortino/MaxDD sanity on SPY).
+This also runs additional checks: **Metrics Computation QA** (Sharpe/Sortino/MaxDD sanity on SPY), **Wash Sale Detection**, **Asset Classification**, **Risk Tolerance Mapping** (all 5 levels valid), and **Allocation Normalization** (sums to 100%).
 
 ## 6. Diagnostic Tools
 

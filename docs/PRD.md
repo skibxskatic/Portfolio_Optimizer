@@ -1,5 +1,11 @@
 # Portfolio Optimizer – Product Requirements Document (PRD)
 
+> [!INFO] Technical Docs
+> **Logic:** [[HOW_IT_WORKS]]
+> **Constraints:** [[CONSTRAINTS]]
+> **User Guide:** [[HOW_TO_USE]]
+> **Finance Context:** [[2026_Tax_Checklist]] | [[2026_LLC_Tax_Guide]]
+
 ## 1. Overview
 **Project Name:** Portfolio Optimizer
 **Objective:** Build a local data processing engine to analyze exported brokerage account data and optimize the portfolio for **long-term wealth accumulation**. The core focus is maximizing after-tax compounding through tax-efficient asset placement, low expenses, and evidence-based fund evaluation — following a "time in market over timing the market" philosophy.
@@ -23,7 +29,10 @@
 *   **Multi-Broker Adapter Layer (`src/parsers/`):** A broker-agnostic ingestion layer built on an abstract `BrokerAdapter` base class. An `ADAPTER_REGISTRY` ordered list `[Fidelity, Schwab, Vanguard, TRowePrice, Principal, Generic]` is iterated per file; the first adapter whose `detect()` method returns `True` claims the file. All adapters output the same **canonical schema** regardless of source broker. `GenericAdapter` is always last — it uses fuzzy column-name matching as a fallback for unknown brokers.
     *   **Canonical Positions columns:** `Symbol`, `Description`, `Account Name`, `Account Type`, `Quantity`, `Current Value`, `Cost Basis Total`, `Average Cost Basis`, `Expense Ratio`
     *   **Canonical History columns:** `Date`, `Action` (`Buy` | `Sell` | `Reinvestment` | `Dividend` | `Transfer`), `Symbol`, `Description`, `Quantity`, `Price`, `Amount`, `Account Name`
-*   **CSV Parser (`parser.py` shim → `parsers.fidelity.FidelityAdapter`):** `portfolio_analyzer.py` calls `load_fidelity_positions()` / `load_fidelity_history()` unchanged. These are backward-compat shims that delegate to `FidelityAdapter`. Fidelity history action strings are normalized at the adapter layer (`YOU BOUGHT`→`Buy`, `REINVESTMENT`→`Reinvestment`, etc.) and column names are renamed to canonical form (`Run Date`→`Date`, `Account`→`Account Name`).
+*   **Automatic History Consolidation:** The engine automatically detects multiple history CSV files, merges them, deduplicates transactions, and sorts by date. It generates a single master file named with the transaction date range and archives individual files to a local `archived/` folder.
+*   **Pre-Flight History Assessment:** Immediate terminal reporting of the date range (Oldest to Newest) of current history. Calculates the percentage of the portfolio missing history to provide actionable guidance on exactly how far back the user needs to download reports.
+*   **CSV Parser (`parser.py` shim → `parsers.fidelity.FidelityAdapter`):** `portfolio_analyzer.py` calls `load_fidelity_positions()` / `load_fidelity_history()` unchanged.
+ These are backward-compat shims that delegate to `FidelityAdapter`. Fidelity history action strings are normalized at the adapter layer (`YOU BOUGHT`→`Buy`, `REINVESTMENT`→`Reinvestment`, etc.) and column names are renamed to canonical form (`Run Date`→`Date`, `Account`→`Account Name`).
     *   **Data Freshness Requirement:** The parser relies on `Portfolio_Positions.csv` as the absolute source of truth for the *current* quantity of shares held today. A fresh export is required per run.
 *   **Tax Lot Unrolling:** Break down aggregate ticker holdings into individual tax lots (Purchase Date, Cost Basis, Current Value) to calculate holding periods using FIFO (First-In-First-Out) accounting. The unroller intentionally **ignores sell transactions** in the history CSVs, as applying sells manually would double-count share depletion already reflected in the current positions file. Uses canonical `Date` column and `Action.isin({'Buy', 'Reinvestment'})` filter.
 *   **401k Parser (`401k_parser.py` shim → `parsers.fidelity.FidelityAdapter`):** A backward-compat shim re-exporting 401k parsing functions from `parsers.fidelity`. Extracts current holdings from the "Balance Overview" section and dynamically discovers the available plan fund menu from the "Investment Choices" section. No hardcoding required. Tax lot analysis is **not applicable** to 401k accounts (tax-deferred). T. Rowe Price and Principal 401k formats are handled by their respective adapters.
@@ -46,14 +55,20 @@
 *   **Net-of-Fees Comparison Methodology:** Each flagged fund is compared against the **single best available alternative within the same asset routing bucket**. This ensures apples-to-apples comparison (e.g., a small-cap value fund is compared against the best small-cap alternative, not against SPY).
 
 #### 3c. Smart Asset Routing (4-Bucket Tax Location Strategy)
-The engine must dynamically categorize both existing holdings and replacement candidates based on live `yfinance` performance metrics and route them to the most tax-efficient account type using a **four-bucket model**:
+The engine uses a **5-tier stable routing hierarchy** to categorize assets and route them to the most tax-efficient account type:
 
-| Bucket | Criteria | Target Account | Rationale |
+1. **Golden Whitelist:** Core funds (VTI, VOO, SCHX -> Taxable; QQQ, VGT, SMH -> Roth IRA) are anchored permanently to eliminate "beta-flip" noise.
+2. **High-Yield Anchors:** REITS, BDCs, and Preferred Stock categories are forced to Tax-Deferred (401k) to avoid high tax drag.
+3. **Category Anchoring:** Uses long-term fund classification (e.g., "Technology" -> Roth; "Municipal Bond" -> Taxable) for stability.
+4. **3-Year Beta Fallback:** Volatility routing uses a 3-year lookback (increased from 1y) to ignore temporary market spikes.
+5. **Default Taxable:** Final fallback for unknown asset classes.
+
+| Bucket | Logic | Target Account | Rationale |
 |---|---|---|---|
-| **Maximum Growth** | Highest total return, low dividend yield (< 2.0%), high beta (> 1.0) | **Roth IRA** | All growth is permanently tax-free. The Roth is the most valuable tax shelter — put your biggest compounders here. |
-| **Income / Dividend (Plan-Constrained)** | High dividend yield (≥ 2.0%), steady compounding | **Employer 401k** | Tax-deferred; dividends don't create annual drag. Constrained to employer's plan menu. |
-| **Income / Dividend (Full Universe)** | High dividend yield (≥ 2.0%), steady compounding | **HSA** | Triple tax advantage. Same scoring model as 401k but with full dynamic universe access. |
-| **Tax-Efficient Growth** | Low distributions, moderate growth, low yield (< 2.0%), beta ≤ 1.0 | **Taxable Brokerage** | Capital appreciation without taxable events. Minimal distributions mean minimal annual tax drag. |
+| **Maximum Growth** | Whitelist / High Beta (>1.0) | **Roth IRA** | All growth is permanently tax-free. Put your biggest compounders here. |
+| **Income / Dividend** | Yield Anchors / High Yield (≥2.0%) | **Employer 401k** | Tax-deferred; dividends don't create annual drag. |
+| **Income / Dividend** | High Yield (≥2.0%) | **HSA** | Triple tax advantage. Same scoring model as 401k but with full universe access. |
+| **Tax-Efficient Growth** | Whitelist / Low Beta (≤1.0) | **Taxable Brokerage** | Capital appreciation without taxable events. Minimal distributions. |
 
 **Account Name Mapping:** The engine maps CSV `Account Name` values to routing buckets:
 
@@ -65,7 +80,7 @@ The engine must dynamically categorize both existing holdings and replacement ca
 | `Health Savings Account` | HSA |
 | `401k` (from plan parser) | Employer 401k |
 
-**401k Replacement Constraint:** For 401k accounts, replacement recommendations are **dynamically constrained to the employer's plan menu** by extracting available fund tickers from the user's Investment Options PDF text. HSA accounts have **no such constraint** and receive the full dynamic universe. The engine does not hardcode any employer-specific data — it works for any 401k plan.
+**401k Replacement Constraint:** For 401k accounts, replacement recommendations are **dynamically constrained to the employer's plan menu** by extracting available fund tickers from the user's Investment Options PDF text. HSA accounts have **no such constraint** and receive the full dynamic universe. The engine does not hardcode any employer-specific data — it works for any 401k plan. See [[Pia_and_Wes_Investment_Analysis_Apr_2026]] for joint investment context.
 
 #### 3d. Per-Account Scoring & Evaluation Metrics
 Rather than a single global scoring formula, the engine uses **account-specific scoring** that weights metrics aligned to each account's investment objective:
@@ -132,12 +147,19 @@ When an `investor_profile.txt` is present (or using defaults), the engine comput
         *   **Taxable Brokerage:** Tax-efficient growth funds scored by Sharpe Ratio and low distribution yield.
     *   **401k Plan Analysis:** When 401k data is present, the report includes a dedicated Section 5 that quarantines 401k holdings. It generates a Plan Menu Scorecard ranking every available fund in the employer plan by the engine's 401k mathematical formula, highlights explicit **Rebalance Opportunities** (top 5 unheld funds), **Underperforming Holdings** (bottom half held funds), and a **Recommended Allocation** table. The allocation engine uses a piecewise linear glide path (Vanguard-style) to compute an age-aware equity/bond target split, classifies each plan fund into 4 asset classes (US Equity, Intl Equity, Bond, Stable Value) via `classify_asset_class()`, and produces score-weighted percentage targets per fund with a 5% minimum floor. An `investor_profile.txt` in `Drop_Financial_Info_Here/` provides `birth_year` and `retirement_year` for age-aware scoring across all account types; defaults are used if absent.
     *   **Capital Gains Screener:** The screener MUST automatically exclude all tax-advantaged accounts (e.g., Roth IRA, 401k/HSA) since capital gains rules do not apply to them. It must only evaluate lots in Taxable Brokerage accounts and visually group the output table sorted primarily by Account Name.
-    *   **Executive Summary (Section 0):** The report MUST open with 3-5 auto-generated bullets summarizing the most actionable findings, each with a section reference.
+    *   **Executive Summary (Section 0):** The report MUST open with a ⚡ **Immediate Execution Steps** table (concise actions with priority and tax impact) followed by 3-5 auto-generated narrative bullets.
+    *   **Tax-Loss Harvesting Priority:** TLH actions are prioritized by dollar value: **High** (>$3,000 loss), **Med** (>$1,000), **Low** (others). Includes an "Est. Tax Savings" column (calculated at a 24% marginal rate).
+    *   **Deduplicated Analysis:** The "Holding Overlap" section must use underlying ticker grouping to prevent duplicate entries from appearing when the same stock is held across multiple funds.
+    *   **Dynamic 401k Objectives:** The 401k section title and scoring description must adapt to the investor's horizon: "Maximum Growth" (>15 yrs out), "Balanced Growth" (>5 yrs), or "Income & Dividends" (near retirement).
     *   **Next Steps (Section 6):** Contextual action items grouped by category (high-ER replacements with tax context, TLH actions with wash-sale warnings, 401k rebalancing, age-inappropriate holdings). Shows "no action items" if portfolio is well-positioned.
     *   **Why These Recommendations (Section 7):** Two tiers:
         *   **Tier 1:** Plain-English verdict table (Keep/Replace/Evaluate per holding with human-readable "Why" — no raw metric numbers).
         *   **Tier 2:** Evaluation metrics summary explaining each metric, per-account scoring rationale, and age-aware scoring adjustments. Collapsible in HTML via `<details>` tag.
-    *   **Dual Output:** The engine generates both an interactive HTML report (with TOC, collapsible sections, Water.css styling) and a PDF report. HTML auto-opens in browser.
+    *   **Dual Output:** The engine generates both an interactive HTML report (with sticky sidebar TOC with scroll-spy, collapsible sections, Water.css styling) and a PDF report. HTML auto-opens in browser.
+    *   **Portfolio Rebalancing Plan (Section 5f):** Per-account allocation tables for Roth IRA, Taxable Brokerage, and HSA. Uses score-weighted proportional allocation with a 5% minimum floor. Shows Score, Stability Score, Allocation %, and pertinent metric (Sortino for Roth/HSA, Sharpe for Taxable). Compares existing holdings against recommendations with inline metric comparison.
+    *   **Risk Tolerance & Stability Blending:** 5-level risk tolerance system (very_conservative through very_aggressive) that blends raw performance score with stability score. Auto-calculated from years to retirement if not set in `investor_profile.txt`. Stability score (0-100) uses inverse max drawdown and inverse beta.
+    *   **Investor Profile (Enhanced):** `investor_profile.txt` now supports `risk_tolerance`, `state` (for tax estimates), and per-account contribution amounts (`roth_ira_contribution`, `taxable_contribution`, `hsa_contribution`, `401k_contribution`). Template auto-generated on first run. Interactive setup via launcher scripts.
+    *   **State Tax Integration:** `tax_rates.py` provides federal + state combined tax rates for all 50 states + DC. Used for tax impact estimation in rebalancing recommendations.
 
 ### Phase 5: Quality Assurance (Pre-Flight Pipeline)
 *   **Pre-Flight Gate:** The `validator.py` script MUST run automatically before every analysis in `portfolio_analyzer.py`. If any check fails, the engine must abort immediately and print a clear diagnostic message rather than generating a corrupted report.
@@ -145,14 +167,20 @@ When an `investor_profile.txt` is present (or using defaults), the engine comput
     *   **Reality Check 1 – Ingestion Validation:** Assert that the total "Current Value" parsed by Pandas matches the raw CSV sum to within $1.00 tolerance.
     *   **Reality Check 2 – API Sanity:** Fetch SPY and SCHD and assert their yield and ER are within known-good bounds. This detects if a `yfinance` API update breaks field extraction.
     *   **Reality Check 3 – Dynamic Screener QA:** Verify that the live-scraped candidate universe passes the ETF/Mutual Fund type filter (no individual stocks), and that no candidate reports perfectly `0.0%` across all return metrics (corrupted data guard).
-    *   **Reality Check 4 – Asset Routing Validation:** Fetch benchmarks (SCHD, QQQ, VTI) and assert that the 3-bucket routing math classifies them correctly:
-        *   SCHD (high yield) → 401k / HSA
+    *   **Reality Check 4 – Asset Routing Validation:** Fetch benchmarks (SCHD, QQQ, VTI, VGT) and assert that the 4-bucket routing math classifies them correctly:
+        *   SCHD (high yield) → Tax-Deferred (401k)
         *   QQQ (high growth, high beta) → Roth IRA
         *   VTI (broad market, low yield, low beta) → Taxable Brokerage
+        *   VGT (high growth, high beta) → Roth IRA (also feeds HSA pool)
+    *   **Reality Check 5 – Metrics Computation:** Compute Sharpe, Sortino, Max Drawdown on SPY and assert within sane bounds.
+    *   **Reality Check 6 – Wash Sale Detection:** Verify cross-account identical fund detection on synthetic data.
+    *   **Reality Check 7 – Asset Classification:** Verify `classify_asset_class()` returns correct classes for SPY, AGG, VXUS.
+    *   **Reality Check 8 – Risk Tolerance Mapping:** Verify all 5 risk levels have valid weight dicts summing to 1.0, and auto-computation boundaries are correct.
+    *   **Reality Check 9 – Allocation Normalization:** Verify `compute_allocation()` produces percentages summing to 100% ± 0.1% with 5% floor enforcement.
 
 ### Phase 6: Zero-Config Launchers & Documentation
 *   **Non-Technical Executable Wrappers:** The engine MUST provide double-click launchers for both Windows and macOS that require zero terminal knowledge:
-    *   **Windows:** `Portfolio_Optimizer.bat` — a batch file that invokes `run_optimizer.ps1`, which auto-detects an active venv, activates an existing one, or creates and initializes a new venv with all dependencies if none exists. Prompts the user to confirm fresh data before running.
+    *   **Windows:** `Portfolio_Optimizer.ps1` — a batch file that invokes `run_optimizer.ps1`, which auto-detects an active venv, activates an existing one, or creates and initializes a new venv with all dependencies if none exists. Prompts the user to confirm fresh data before running.
     *   **macOS:** `Portfolio_Optimizer_Mac.app` — a macOS `.app` bundle wrapping `Portfolio_Optimizer.command` (a shell script with the same auto-venv logic). Handles file permissions so no terminal commands are required. A standalone `Portfolio_Optimizer.command` is also provided for users who prefer the command line.
     *   Both launchers must auto-initialize the virtual environment and install all dependencies on first run, and skip activation if a venv is already active.
 *   **Living "How to Use" Guide:** A centralized guide (`docs/HOW_TO_USE.md`) defining exactly how to export CSVs from your brokerage, place them in the secure `Drop_Financial_Info_Here/` folder, trigger the interfaces, and run standalone validation.
