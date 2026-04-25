@@ -8,7 +8,7 @@ if str(_src_dir) not in sys.path:
     sys.path.insert(0, str(_src_dir))
 
 from parsers.fidelity import FidelityAdapter as _FidelityAdapter
-from parsers.fidelity import unroll_tax_lots  # re-export for any direct callers
+from parsers.fidelity import unroll_tax_lots  # noqa: F401 re-export for direct callers
 
 _adapter = _FidelityAdapter()
 

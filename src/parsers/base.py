@@ -8,7 +8,7 @@ the canonical column names defined here.
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -18,35 +18,36 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 CANONICAL_POSITIONS_COLS: List[str] = [
-    'Symbol',
-    'Description',
-    'Account Name',
-    'Account Type',
-    'Quantity',
-    'Current Value',
-    'Cost Basis Total',
-    'Average Cost Basis',
-    'Expense Ratio',
+    "Symbol",
+    "Description",
+    "Account Name",
+    "Account Type",
+    "Quantity",
+    "Current Value",
+    "Cost Basis Total",
+    "Average Cost Basis",
+    "Expense Ratio",
 ]
 
 CANONICAL_HISTORY_COLS: List[str] = [
-    'Date',          # datetime
-    'Action',        # normalized: Buy | Sell | Reinvestment | Dividend | Transfer
-    'Symbol',
-    'Description',
-    'Quantity',
-    'Price',
-    'Amount',
-    'Account Name',
+    "Date",  # datetime
+    "Action",  # normalized: Buy | Sell | Reinvestment | Dividend | Transfer
+    "Symbol",
+    "Description",
+    "Quantity",
+    "Price",
+    "Amount",
+    "Account Name",
 ]
 
 # Normalized action values — all adapters must map to one of these
-CANONICAL_ACTIONS = {'Buy', 'Sell', 'Reinvestment', 'Dividend', 'Transfer'}
+CANONICAL_ACTIONS = {"Buy", "Sell", "Reinvestment", "Dividend", "Transfer"}
 
 
 # ---------------------------------------------------------------------------
 # Abstract Base
 # ---------------------------------------------------------------------------
+
 
 class BrokerAdapter(ABC):
     """Abstract base class for broker-specific file parsers.
@@ -80,6 +81,6 @@ class BrokerAdapter(ABC):
         """Return True if this file is a 401k/retirement plan file from this broker."""
         return False
 
-    def parse_401k(self, filepath: Path) -> Tuple[pd.DataFrame, List[str]]:
-        """Parse a 401k file. Returns (holdings_df, plan_menu_tickers)."""
-        return pd.DataFrame(), []
+    def parse_401k(self, filepath: Path) -> Tuple[pd.DataFrame, List[str], Optional[Dict[str, str]]]:
+        """Parse a 401k file. Returns (holdings_df, plan_menu_tickers, plan_menu_dict)."""
+        return pd.DataFrame(), [], None

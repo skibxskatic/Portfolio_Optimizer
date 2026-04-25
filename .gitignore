@@ -30,5 +30,8 @@ build/
 coverage/
 *.pdf
 data/*.pdf
+*.html
+reports/
+trace_output.txt
 data/Portfolio_Analysis_Report.md
 .cache/

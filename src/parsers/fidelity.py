@@ -12,37 +12,39 @@ All output columns conform to the canonical schema defined in parsers/base.py.
 import io
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
 import pandas as pd
 
-from parsers.base import BrokerAdapter, CANONICAL_POSITIONS_COLS, CANONICAL_HISTORY_COLS
+from parsers.base import BrokerAdapter
 
 
 # ---------------------------------------------------------------------------
 # Action normalization map
 # ---------------------------------------------------------------------------
 
+
 def _normalize_fidelity_action(raw: str) -> str:
     """Map verbose Fidelity action strings to canonical action values."""
     s = str(raw).upper()
-    if 'BUY' in s or 'BOUGHT' in s:
-        return 'Buy'
-    if 'SOLD' in s or 'SELL' in s:
-        return 'Sell'
-    if 'REINVEST' in s:
-        return 'Reinvestment'
-    if 'DIVIDEND' in s:
-        return 'Dividend'
-    if 'TRANSFER' in s:
-        return 'Transfer'
+    if "BUY" in s or "BOUGHT" in s:
+        return "Buy"
+    if "SOLD" in s or "SELL" in s:
+        return "Sell"
+    if "REINVEST" in s:
+        return "Reinvestment"
+    if "DIVIDEND" in s:
+        return "Dividend"
+    if "TRANSFER" in s:
+        return "Transfer"
     return raw  # keep original if no match
 
 
 # ---------------------------------------------------------------------------
 # Fidelity Adapter
 # ---------------------------------------------------------------------------
+
 
 class FidelityAdapter(BrokerAdapter):
     BROKER_NAME = "Fidelity"
@@ -53,29 +55,29 @@ class FidelityAdapter(BrokerAdapter):
 
     def detect(self, filepath: Path) -> bool:
         """Return True if the file looks like a Fidelity positions or history export."""
-        if filepath.suffix.lower() not in ('.csv', '.txt'):
+        if filepath.suffix.lower() not in (".csv", ".txt"):
             return False
         try:
-            sample = filepath.read_text(encoding='utf-8-sig', errors='ignore')[:4000]
+            sample = filepath.read_text(encoding="utf-8-sig", errors="ignore")[:4000]
         except Exception:
             return False
         # Positions: distinctive Fidelity columns
-        if 'Cost Basis Total' in sample and 'Account Number' in sample:
+        if "Cost Basis Total" in sample and "Account Number" in sample:
             return True
         # History: Run Date + Settlement Date
-        if 'Run Date' in sample and 'Settlement Date' in sample:
+        if "Run Date" in sample and "Settlement Date" in sample:
             return True
         return False
 
     def detect_401k(self, filepath: Path) -> bool:
         """Return True if this file looks like a Fidelity 401k options/balance file."""
-        if filepath.suffix.lower() not in ('.txt', '.pdf', '.csv'):
+        if filepath.suffix.lower() not in (".txt", ".pdf", ".csv"):
             return False
         try:
-            sample = filepath.read_text(encoding='utf-8', errors='ignore')[:3000]
+            sample = filepath.read_text(encoding="utf-8", errors="ignore")[:3000]
         except Exception:
             return False
-        return 'Investment Choices' in sample or 'Balance Overview' in sample
+        return "Investment Choices" in sample or "Balance Overview" in sample
 
     # ------------------------------------------------------------------
     # Positions
@@ -91,38 +93,45 @@ class FidelityAdapter(BrokerAdapter):
             raise FileNotFoundError(f"Positions file not found at {path}")
 
         try:
-            df = pd.read_csv(path, engine='python', index_col=False, on_bad_lines='skip')
+            df = pd.read_csv(path, engine="python", index_col=False, on_bad_lines="skip")
         except Exception:
-            df = pd.read_csv(path, index_col=False, on_bad_lines='skip')
+            df = pd.read_csv(path, index_col=False, on_bad_lines="skip")
 
         df.columns = df.columns.str.strip()
-        df.dropna(how='all', inplace=True)
+        df.dropna(how="all", inplace=True)
 
         # Remove summary rows (Account Total, Pending Activity)
-        df = df[df['Symbol'].notna()]
-        df = df[df['Symbol'].astype(str).str.strip() != '']
+        df = df[df["Symbol"].notna()]
+        df = df[df["Symbol"].astype(str).str.strip() != ""]
 
         # Strip Fidelity's '**' suffix from cash tickers (e.g. 'SPAXX**')
-        df['Symbol'] = df['Symbol'].astype(str).str.replace(r'\*+', '', regex=True)
+        df["Symbol"] = df["Symbol"].astype(str).str.replace(r"\*+", "", regex=True)
 
         # Clean numeric columns
         cols_to_clean = [
-            'Quantity', 'Last Price', 'Last Price Change', 'Current Value',
-            "Today's Gain/Loss Dollar", "Today's Gain/Loss Percent",
-            'Total Gain/Loss Dollar', 'Total Gain/Loss Percent',
-            'Percent Of Account', 'Cost Basis Total', 'Average Cost Basis',
+            "Quantity",
+            "Last Price",
+            "Last Price Change",
+            "Current Value",
+            "Today's Gain/Loss Dollar",
+            "Today's Gain/Loss Percent",
+            "Total Gain/Loss Dollar",
+            "Total Gain/Loss Percent",
+            "Percent Of Account",
+            "Cost Basis Total",
+            "Average Cost Basis",
         ]
         for col in cols_to_clean:
             if col in df.columns:
-                df[col] = df[col].astype(str).str.replace(r'[\$\%\,\+]', '', regex=True)
-                df[col] = df[col].replace(['--', 'n/a', ''], np.nan)
-                df[col] = pd.to_numeric(df[col], errors='coerce')
+                df[col] = df[col].astype(str).str.replace(r"[\$\%\,\+]", "", regex=True)
+                df[col] = df[col].replace(["--", "n/a", ""], np.nan)
+                df[col] = pd.to_numeric(df[col], errors="coerce")
 
         # Fidelity positions already use canonical column names:
         # Account Name, Current Value, Cost Basis Total, Average Cost Basis ✓
         # Ensure Expense Ratio column exists (will be filled by market_data later)
-        if 'Expense Ratio' not in df.columns:
-            df['Expense Ratio'] = np.nan
+        if "Expense Ratio" not in df.columns:
+            df["Expense Ratio"] = np.nan
 
         return df
 
@@ -140,45 +149,36 @@ class FidelityAdapter(BrokerAdapter):
         if not path.exists():
             raise FileNotFoundError(f"History file not found at {path}")
 
-        with open(path, 'r', encoding='utf-8-sig') as f:
+        with open(path, "r", encoding="utf-8-sig") as f:
             lines = f.readlines()
 
         # Find the header row
         start_idx = 0
         for i, line in enumerate(lines):
-            if 'Run Date' in line and 'Symbol' in line:
+            if "Run Date" in line and "Symbol" in line:
                 start_idx = i
                 break
 
         clean_csv = "".join(lines[start_idx:])
         try:
-            df = pd.read_csv(io.StringIO(clean_csv), engine='python', on_bad_lines='skip')
+            df = pd.read_csv(io.StringIO(clean_csv), engine="python", on_bad_lines="skip")
         except Exception:
-            df = pd.read_csv(io.StringIO(clean_csv), on_bad_lines='skip')
+            df = pd.read_csv(io.StringIO(clean_csv), on_bad_lines="skip")
 
         df.columns = df.columns.str.strip()
-        df.dropna(how='all', inplace=True)
-
-        # Parse date
-        if 'Run Date' in df.columns:
-            df['Run Date'] = pd.to_datetime(df['Run Date'].astype(str).str.strip(), errors='coerce')
-
-        # Clean numeric columns
-        for col in ['Price', 'Quantity', 'Amount']:
-            if col in df.columns:
-                df[col] = df[col].astype(str).str.replace(r'[\$\%\,\+]', '', regex=True)
-                df[col] = df[col].replace(['--', 'n/a', ''], np.nan)
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-
-        # Normalize action strings to canonical values
-        if 'Action' in df.columns:
-            df['Action'] = df['Action'].apply(_normalize_fidelity_action)
+        df.dropna(how="all", inplace=True)
 
         # Rename to canonical column names
-        df = df.rename(columns={
-            'Run Date': 'Date',
-            'Account': 'Account Name',
-        })
+        df = df.rename(
+            columns={
+                "Run Date": "Date",
+                "Account": "Account Name",
+            }
+        )
+
+        # Ensure Date is datetime (handles both raw Fidelity and consolidated CSVs)
+        if "Date" in df.columns:
+            df["Date"] = pd.to_datetime(df["Date"].astype(str).str.strip(), errors="coerce")
 
         return df
 
@@ -186,7 +186,7 @@ class FidelityAdapter(BrokerAdapter):
     # 401k
     # ------------------------------------------------------------------
 
-    def parse_401k(self, filepath: Path) -> Tuple[pd.DataFrame, List[str]]:
+    def parse_401k(self, filepath: Path) -> Tuple[pd.DataFrame, List[str], Dict[str, str]]:
         """
         Parses a Fidelity 401k Investment Options extracted text file.
         Delegates to the module-level functions below.
@@ -198,6 +198,7 @@ class FidelityAdapter(BrokerAdapter):
 # 401k Parsing Logic (formerly in 401k_parser.py)
 # ---------------------------------------------------------------------------
 
+
 def extract_plan_menu(text: str) -> Dict[str, str]:
     """
     Dynamically extracts the full plan menu (all available investment options)
@@ -206,14 +207,22 @@ def extract_plan_menu(text: str) -> Dict[str, str]:
     Scans for all occurrences of 'FUND NAME (TICKER)' patterns.
     Returns a dict mapping display names → ticker symbols.
     """
-    pattern = r'([A-Z][A-Za-z0-9&\' /\-\.]+?)\s*\(([A-Z]{2,6}(?:\d{0,2})?)\)'
+    pattern = r"([A-Z][A-Za-z0-9&\' /\-\.]+?)\s*\(([A-Z]{2,6}(?:\d{0,2})?)\)"
     matches = re.findall(pattern, text)
 
     noise_prefixes = [
-        "Show", "mark", "ReturnsAs OfBench-mark", "ReturnsAs Of",
-        "Bench-mark", "ViewChart", "View", "Select",
+        "Show",
+        "mark",
+        "ReturnsAs OfBench-mark",
+        "ReturnsAs Of",
+        "Bench-mark",
+        "ViewChart",
+        "View",
+        "Select",
         "Invested Balance Cost Basis YTDReturnsAs OfViewChart",
-        "Performance", "Details", "Add to Watchlist",
+        "Performance",
+        "Details",
+        "Add to Watchlist",
     ]
 
     plan_menu: Dict[str, str] = {}
@@ -227,7 +236,7 @@ def extract_plan_menu(text: str) -> Dict[str, str]:
 
         for prefix in noise_prefixes:
             if name.startswith(prefix):
-                name = name[len(prefix):].strip()
+                name = name[len(prefix) :].strip()
 
         if not name:
             continue
@@ -251,44 +260,48 @@ def extract_current_holdings(text: str, plan_menu: Dict[str, str]) -> pd.DataFra
     for display_name, ticker in plan_menu.items():
         escaped_ticker = re.escape(ticker)
         pattern = (
-            rf'{escaped_ticker}\)'
-            rf'.*?'
-            rf'([\d.]+)%'
-            rf'\s*\$([\d,]+\.?\d*)'
-            rf'\s*\$([\d,]+\.?\d*)'
+            rf"{escaped_ticker}\)"
+            rf".*?"
+            rf"([\d.]+)%"
+            rf"\s*\$([\d,]+\.?\d*)"
+            rf"\s*\$([\d,]+\.?\d*)"
         )
         match = re.search(pattern, text, re.DOTALL)
         if not match:
             # Strategy B: relaxed fallback
-            pattern_b = rf'{escaped_ticker}.*?\$([\d,]+\.?\d*)'
+            pattern_b = rf"{escaped_ticker}.*?\$([\d,]+\.?\d*)"
             match_b = re.search(pattern_b, text, re.DOTALL)
             if match_b:
-                balance = float(match_b.group(1).replace(',', ''))
-                holdings.append({
-                    'Symbol': ticker,
-                    'Fund Name': display_name,
-                    'Description': display_name,
-                    'Current Value': balance,
-                    'Cost Basis Total': 0.0,
-                    'Pct Invested': 0.0,
-                    'Account Name': '401k',
-                    'Account Type': 'Employer 401k',
-                })
+                balance = float(match_b.group(1).replace(",", ""))
+                holdings.append(
+                    {
+                        "Symbol": ticker,
+                        "Fund Name": display_name,
+                        "Description": display_name,
+                        "Current Value": balance,
+                        "Cost Basis Total": 0.0,
+                        "Pct Invested": 0.0,
+                        "Account Name": "401k",
+                        "Account Type": "Employer 401k",
+                    }
+                )
             continue
 
         pct_invested = float(match.group(1))
-        balance = float(match.group(2).replace(',', ''))
-        cost_basis = float(match.group(3).replace(',', ''))
-        holdings.append({
-            'Symbol': ticker,
-            'Fund Name': display_name,
-            'Description': display_name,
-            'Current Value': balance,
-            'Cost Basis Total': cost_basis,
-            'Pct Invested': pct_invested,
-            'Account Name': '401k',
-            'Account Type': 'Employer 401k',
-        })
+        balance = float(match.group(2).replace(",", ""))
+        cost_basis = float(match.group(3).replace(",", ""))
+        holdings.append(
+            {
+                "Symbol": ticker,
+                "Fund Name": display_name,
+                "Description": display_name,
+                "Current Value": balance,
+                "Cost Basis Total": cost_basis,
+                "Pct Invested": pct_invested,
+                "Account Name": "401k",
+                "Account Type": "Employer 401k",
+            }
+        )
 
     return pd.DataFrame(holdings)
 
@@ -298,20 +311,21 @@ def get_plan_menu_tickers(plan_menu: Dict[str, str]) -> List[str]:
     return sorted(set(plan_menu.values()))
 
 
-def parse_401k_options_file(options_text_path: Path) -> Tuple[pd.DataFrame, List[str]]:
+def parse_401k_options_file(options_text_path: Path) -> Tuple[pd.DataFrame, List[str], Dict[str, str]]:
     """
     Master entry point: parses an Investment Options extracted text file.
 
     Returns:
     - holdings_df: DataFrame of the user's current 401k holdings
     - plan_menu_tickers: List of all ticker symbols available in the plan
+    - plan_menu: Dict mapping original display names -> ticker symbols
     """
-    text = options_text_path.read_text(encoding='utf-8')
+    text = options_text_path.read_text(encoding="utf-8")
     plan_menu = extract_plan_menu(text)
 
     if not plan_menu:
         print("⚠️ Could not dynamically extract any fund tickers from the 401k Investment Options text.")
-        return pd.DataFrame(), []
+        return pd.DataFrame(), [], {}
 
     print(f"   Dynamically extracted {len(plan_menu)} funds from 401k plan menu.")
     holdings_df = extract_current_holdings(text, plan_menu)
@@ -322,7 +336,7 @@ def parse_401k_options_file(options_text_path: Path) -> Tuple[pd.DataFrame, List
         print(f"   Found {len(holdings_df)} current 401k holdings.")
 
     plan_tickers = get_plan_menu_tickers(plan_menu)
-    return holdings_df, plan_tickers
+    return holdings_df, plan_tickers, plan_menu
 
 
 def find_401k_options_file(data_dir: Path) -> Optional[Path]:
@@ -349,8 +363,8 @@ def find_401k_options_file(data_dir: Path) -> Optional[Path]:
                 if "Transaction" in str(p) or "transaction" in str(p):
                     continue
                 try:
-                    content = p.read_text(encoding='utf-8')[:2000]
-                    if 'Investment Choices' in content or 'Balance Overview' in content:
+                    content = p.read_text(encoding="utf-8")[:2000]
+                    if "Investment Choices" in content or "Balance Overview" in content:
                         return p
                 except Exception:
                     pass
@@ -358,7 +372,7 @@ def find_401k_options_file(data_dir: Path) -> Optional[Path]:
         for p in search_dir.glob("extracted_text_*401k*.txt"):
             if "Transaction" not in str(p) and "transaction" not in str(p):
                 try:
-                    content = p.read_text(encoding='utf-8')[:2000]
+                    content = p.read_text(encoding="utf-8")[:2000]
                     if "Investment Choices" in content or "Balance Overview" in content:
                         return p
                 except Exception:
@@ -371,9 +385,13 @@ def find_401k_options_file(data_dir: Path) -> Optional[Path]:
 # Tax Lot Unrolling (uses canonical column names)
 # ---------------------------------------------------------------------------
 
-def unroll_tax_lots(positions_df: pd.DataFrame, history_df: pd.DataFrame) -> pd.DataFrame:
+
+def unroll_tax_lots(
+    positions_df: pd.DataFrame, history_df: pd.DataFrame, metadata: Dict[str, Any] = None
+) -> pd.DataFrame:
     """
     Reconstructs individual tax lots from positions + history using FIFO accounting.
+    Applies split normalization using corporate action history from metadata.
 
     Expects canonical column names:
     - history_df: 'Date' (datetime), 'Action' (normalized: 'Buy' or 'Reinvestment')
@@ -382,19 +400,25 @@ def unroll_tax_lots(positions_df: pd.DataFrame, history_df: pd.DataFrame) -> pd.
     unrolled_lots = []
 
     # Filter history for canonical buy actions only
-    buy_actions = {'Buy', 'Reinvestment'}
-    buys_df = history_df[history_df['Action'].isin(buy_actions)].copy()
+    buy_actions = {"Buy", "Reinvestment"}
+    buys_df = history_df[history_df["Action"].isin(buy_actions)].copy()
 
     for _, pos in positions_df.iterrows():
-        symbol = pos.get('Symbol')
-        current_qty = pos.get('Quantity', 0)
+        symbol = pos.get("Symbol")
+        current_qty = pos.get("Quantity", 0)
 
         if pd.isna(symbol) or current_qty <= 0:
             continue
 
+        # Fetch splits for this ticker from metadata
+        ticker_meta = metadata.get(symbol, {}) if metadata else {}
+        splits = ticker_meta.get("splits")  # pd.Series with index=Date, values=Ratio
+
         # Sort newest-to-oldest under FIFO (shares still held = most recently bought)
-        sym_buys = buys_df[buys_df['Symbol'] == symbol].sort_values(
-            by='Date', ascending=False
+        # CRITICAL FIX: Filter by BOTH Symbol and Account Name to prevent cross-account lot theft.
+        account_name = pos.get("Account Name")
+        sym_buys = buys_df[(buys_df["Symbol"] == symbol) & (buys_df["Account Name"] == account_name)].sort_values(
+            by="Date", ascending=False
         )
 
         shares_needed = current_qty
@@ -402,46 +426,64 @@ def unroll_tax_lots(positions_df: pd.DataFrame, history_df: pd.DataFrame) -> pd.
         for _, buy in sym_buys.iterrows():
             if shares_needed <= 0:
                 break
-            buy_qty = float(buy.get('Quantity', 0))
+
+            buy_date = buy.get("Date")
+            buy_qty = float(buy.get("Quantity", 0))
+            unit_price = float(buy.get("Price", 0))
+
             if buy_qty <= 0:
                 continue
 
+            # Apply split normalization
+            # If transactions occurred before a split, we must multiply qty and divide price.
+            if splits is not None and not splits.empty:
+                # Find all splits that happened AFTER this buy date
+                # splits.index is typically timezone-aware or naive. Ensure compatibility.
+                try:
+                    relevant_splits = splits[splits.index > pd.to_datetime(buy_date).tz_localize(splits.index.tz)]
+                except Exception:
+                    relevant_splits = splits[splits.index > pd.to_datetime(buy_date)]
+
+                for split_ratio in relevant_splits:
+                    if split_ratio > 0:
+                        buy_qty *= split_ratio
+                        unit_price /= split_ratio
+
             qty_to_take = min(shares_needed, buy_qty)
             shares_needed -= qty_to_take
-            unit_price = float(buy.get('Price', 0))
 
-            unrolled_lots.append({
-                'Symbol': symbol,
-                'Description': pos.get('Description'),
-                'Account Name': pos.get('Account Name', ''),
-                'Purchase Date': buy.get('Date'),
-                'Quantity': qty_to_take,
-                'Unit Cost': unit_price,
-                'Cost Basis': qty_to_take * unit_price,
-                'Current Unit Price': pos.get('Last Price', 0),
-                'Current Value': qty_to_take * pos.get('Last Price', 0),
-                'Unrealized Gain': (
-                    (qty_to_take * pos.get('Last Price', 0))
-                    - (qty_to_take * unit_price)
-                ),
-            })
+            unrolled_lots.append(
+                {
+                    "Symbol": symbol,
+                    "Description": pos.get("Description"),
+                    "Account Name": pos.get("Account Name", ""),
+                    "Purchase Date": buy_date,
+                    "Quantity": qty_to_take,
+                    "Unit Cost": unit_price,
+                    "Cost Basis": qty_to_take * unit_price,
+                    "Current Unit Price": pos.get("Last Price", 0),
+                    "Current Value": qty_to_take * pos.get("Last Price", 0),
+                    "Unrealized Gain": ((qty_to_take * pos.get("Last Price", 0)) - (qty_to_take * unit_price)),
+                }
+            )
 
         # Fallback lot for shares with no matching history (transfers, etc.)
         if shares_needed > 0.001:
-            unrolled_lots.append({
-                'Symbol': symbol,
-                'Description': pos.get('Description'),
-                'Account Name': pos.get('Account Name', ''),
-                'Purchase Date': pd.NaT,
-                'Quantity': shares_needed,
-                'Unit Cost': pos.get('Average Cost Basis', 0),
-                'Cost Basis': shares_needed * pos.get('Average Cost Basis', 0),
-                'Current Unit Price': pos.get('Last Price', 0),
-                'Current Value': shares_needed * pos.get('Last Price', 0),
-                'Unrealized Gain': (
-                    (shares_needed * pos.get('Last Price', 0))
-                    - (shares_needed * pos.get('Average Cost Basis', 0))
-                ),
-            })
+            unrolled_lots.append(
+                {
+                    "Symbol": symbol,
+                    "Description": pos.get("Description"),
+                    "Account Name": pos.get("Account Name", ""),
+                    "Purchase Date": pd.NaT,
+                    "Quantity": shares_needed,
+                    "Unit Cost": pos.get("Average Cost Basis", 0),
+                    "Cost Basis": shares_needed * pos.get("Average Cost Basis", 0),
+                    "Current Unit Price": pos.get("Last Price", 0),
+                    "Current Value": shares_needed * pos.get("Last Price", 0),
+                    "Unrealized Gain": (
+                        (shares_needed * pos.get("Last Price", 0)) - (shares_needed * pos.get("Average Cost Basis", 0))
+                    ),
+                }
+            )
 
     return pd.DataFrame(unrolled_lots)

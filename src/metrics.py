@@ -10,13 +10,62 @@ All functions share an internal price history cache to avoid redundant API calls
 import yfinance as yf
 import numpy as np
 import pandas as pd
+import concurrent.futures
+import os
+import pickle
+import time
 from typing import Optional, Dict, Any
 
 # --- Internal Cache ---
 _price_cache: Dict[str, pd.DataFrame] = {}
 _info_cache: Dict[str, dict] = {}
+_splits_cache: Dict[str, pd.Series] = {}
 _risk_free_rate_cache: Optional[float] = None
 _funds_data_cache: Dict[str, Any] = {}
+
+CACHE_DIR = ".yfinance_cache"
+CACHE_TTL = 86400  # 24 hours
+
+
+def _get_disk_cache(key: str) -> Any:
+    if not os.path.exists(CACHE_DIR):
+        return None
+    path = os.path.join(CACHE_DIR, f"{key}.pkl")
+    if os.path.exists(path):
+        if time.time() - os.path.getmtime(path) < CACHE_TTL:
+            try:
+                with open(path, "rb") as f:
+                    return pickle.load(f)
+            except Exception:
+                pass
+    return None
+
+
+def _set_disk_cache(key: str, data: Any):
+    if not os.path.exists(CACHE_DIR):
+        try:
+            os.makedirs(CACHE_DIR)
+        except Exception:
+            pass
+    path = os.path.join(CACHE_DIR, f"{key}.pkl")
+    try:
+        with open(path, "wb") as f:
+            pickle.dump(data, f)
+    except Exception:
+        pass
+
+
+def prefetch_histories(tickers: list[str], period: str = "10y"):
+    """
+    Batches the fetching of price histories for all tickers using ThreadPoolExecutor.
+    """
+    valid_tickers = [t for t in set(tickers) if isinstance(t, str)]
+
+    def _fetch(ticker):
+        _get_price_history(ticker, period)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        list(executor.map(_fetch, valid_tickers))
 
 
 def _get_price_history(ticker: str, period: str = "5y") -> Optional[pd.DataFrame]:
@@ -28,12 +77,28 @@ def _get_price_history(ticker: str, period: str = "5y") -> Optional[pd.DataFrame
     if cache_key in _price_cache:
         return _price_cache[cache_key]
 
+    disk_data = _get_disk_cache(cache_key)
+    if disk_data is not None:
+        _price_cache[cache_key] = disk_data
+        # If the history on disk has splits, populate the splits cache too
+        if "Stock Splits" in disk_data.columns:
+            splits_series = disk_data[disk_data["Stock Splits"] != 0]["Stock Splits"]
+            if not splits_series.empty:
+                _splits_cache[ticker] = splits_series
+        return disk_data
+
     try:
         t = yf.Ticker(ticker)
         hist = t.history(period=period)
         if hist.empty or len(hist) < 30:
             return None
         _price_cache[cache_key] = hist
+        _set_disk_cache(cache_key, hist)
+        # Also populate splits cache
+        if "Stock Splits" in hist.columns:
+            splits_series = hist[hist["Stock Splits"] != 0]["Stock Splits"]
+            if not splits_series.empty:
+                _splits_cache[ticker] = splits_series
         return hist
     except Exception:
         return None
@@ -43,13 +108,44 @@ def _get_ticker_info(ticker: str) -> dict:
     """Fetches and caches yfinance .info for a ticker."""
     if ticker in _info_cache:
         return _info_cache[ticker]
+
+    disk_data = _get_disk_cache(f"{ticker}_info")
+    if disk_data is not None:
+        _info_cache[ticker] = disk_data
+        return disk_data
+
     try:
         t = yf.Ticker(ticker)
         info = t.info
         _info_cache[ticker] = info
+        _set_disk_cache(f"{ticker}_info", info)
         return info
     except Exception:
         return {}
+
+
+def _get_ticker_splits(ticker: str) -> pd.Series:
+    """Fetches and caches stock split history.
+    Tries to derive from cached 10y history first, then t.splits."""
+    if ticker in _splits_cache:
+        return _splits_cache[ticker]
+
+    # Try getting from 10y history cache (which contains splits column)
+    hist = _get_price_history(ticker, "10y")
+    if hist is not None and "Stock Splits" in hist.columns:
+        splits = hist[hist["Stock Splits"] != 0]["Stock Splits"]
+        if not splits.empty:
+            _splits_cache[ticker] = splits
+            return splits
+
+    # Fallback to direct t.splits
+    try:
+        t = yf.Ticker(ticker)
+        splits = t.splits
+        _splits_cache[ticker] = splits
+        return splits
+    except Exception:
+        return pd.Series(dtype=float)
 
 
 def _get_funds_data(ticker: str):
@@ -81,7 +177,7 @@ def fetch_risk_free_rate() -> float:
         hist = irx.history(period="5d")
         if not hist.empty:
             # ^IRX quotes yield as a percentage (e.g., 4.5 = 4.5%)
-            rate = hist['Close'].iloc[-1] / 100.0
+            rate = hist["Close"].iloc[-1] / 100.0
             if 0.0 <= rate <= 0.15:  # Sanity: 0% to 15%
                 _risk_free_rate_cache = rate
                 return rate
@@ -92,7 +188,7 @@ def fetch_risk_free_rate() -> float:
     return _risk_free_rate_cache
 
 
-def compute_beta(ticker: str, market: str = "SPY", period: str = "1y") -> Optional[float]:
+def compute_beta(ticker: str, market: str = "SPY", period: str = "3y") -> Optional[float]:
     """
     Computes beta from historical daily returns using Covariance / Variance.
     More precise than the rounded yfinance .info beta field.
@@ -104,19 +200,16 @@ def compute_beta(ticker: str, market: str = "SPY", period: str = "1y") -> Option
         return None
 
     try:
-        fund_returns = fund_hist['Close'].pct_change().dropna()
-        market_returns = market_hist['Close'].pct_change().dropna()
+        fund_returns = fund_hist["Close"].pct_change().dropna()
+        market_returns = market_hist["Close"].pct_change().dropna()
 
-        aligned = pd.DataFrame({
-            'fund': fund_returns,
-            'market': market_returns
-        }).dropna()
+        aligned = pd.DataFrame({"fund": fund_returns, "market": market_returns}).dropna()
 
         if len(aligned) < 30:
             return None
 
-        cov = aligned['fund'].cov(aligned['market'])
-        var = aligned['market'].var()
+        cov = aligned["fund"].cov(aligned["market"])
+        var = aligned["market"].var()
         if var == 0:
             return None
 
@@ -137,7 +230,7 @@ def compute_sharpe_ratio(ticker: str, period: str = "5y") -> Optional[float]:
         return None
 
     try:
-        daily_returns = hist['Close'].pct_change().dropna()
+        daily_returns = hist["Close"].pct_change().dropna()
         if daily_returns.std() == 0:
             return None
 
@@ -163,7 +256,7 @@ def compute_sortino_ratio(ticker: str, period: str = "5y") -> Optional[float]:
         return None
 
     try:
-        daily_returns = hist['Close'].pct_change().dropna()
+        daily_returns = hist["Close"].pct_change().dropna()
 
         # Downside deviation: only negative returns
         negative_returns = daily_returns[daily_returns < 0]
@@ -194,7 +287,7 @@ def compute_max_drawdown(ticker: str, period: str = "5y") -> Optional[float]:
         return None
 
     try:
-        prices = hist['Close']
+        prices = hist["Close"]
         cumulative_max = prices.cummax()
         drawdown = (prices - cumulative_max) / cumulative_max
         max_dd = drawdown.min()
@@ -213,7 +306,7 @@ def compute_stability_score(ticker: str) -> Optional[float]:
     if max_dd is None and beta is None:
         return None
     # Inverse drawdown: dd is negative, so (1 + dd) gives 0-1 range
-    dd_component = (1 + (max_dd or -0.30)) * 50    # 50 pts max
+    dd_component = (1 + (max_dd or -0.30)) * 50  # 50 pts max
     # Inverse beta: lower beta = more stable
     beta_val = beta if beta is not None else 1.0
     beta_component = max(0, (2.0 - beta_val)) * 25  # 50 pts max at beta=0
@@ -226,22 +319,48 @@ def _classify_from_category(category: str) -> Optional[str]:
     cat = category.lower()
     if any(k in cat for k in ["money market", "stable value", "ultra-short", "ultrashort"]):
         return "Stable Value"
-    if any(k in cat for k in ["bond", "fixed income", "intermediate",
-                               "government", "treasury", "inflation", "high yield"]):
+    if any(
+        k in cat for k in ["bond", "fixed income", "intermediate", "government", "treasury", "inflation", "high yield"]
+    ):
         return "Bond"
-    if any(k in cat for k in ["foreign", "international", "world", "global",
-                               "emerging", "europe", "pacific", "intl"]):
+    if any(k in cat for k in ["foreign", "international", "world", "global", "emerging", "europe", "pacific", "intl"]):
         return "Intl Equity"
-    if any(k in cat for k in ["large", "mid", "small", "s&p", "nasdaq",
-                               "technology", "growth", "value", "blend",
-                               "equity", "stock", "sector", "target-date",
-                               "target date", "allocation"]):
+    if any(
+        k in cat
+        for k in [
+            "large",
+            "mid",
+            "small",
+            "s&p",
+            "nasdaq",
+            "technology",
+            "growth",
+            "value",
+            "blend",
+            "equity",
+            "stock",
+            "sector",
+            "target-date",
+            "target date",
+            "allocation",
+        ]
+    ):
         return "US Equity"
     # Alternative assets (commodities, crypto, real estate) -- route as US Equity
     # for scoring purposes since they behave like growth/speculative holdings
-    if any(k in cat for k in ["commodit", "digital asset", "crypto",
-                               "real estate", "reit", "natural resources",
-                               "precious metal", "alternative"]):
+    if any(
+        k in cat
+        for k in [
+            "commodit",
+            "digital asset",
+            "crypto",
+            "real estate",
+            "reit",
+            "natural resources",
+            "precious metal",
+            "alternative",
+        ]
+    ):
         return "US Equity"
     return None
 
@@ -265,7 +384,7 @@ def detect_benchmark(ticker: str) -> Optional[str]:
     fd = _get_funds_data(ticker)
     if fd is not None:
         try:
-            category = (fd.fund_overview or {}).get('categoryName', '').lower()
+            category = (fd.fund_overview or {}).get("categoryName", "").lower()
         except Exception:
             pass
     if not category:
@@ -325,7 +444,7 @@ def classify_asset_class(ticker: str) -> str:
     if fd is not None:
         try:
             overview = fd.fund_overview
-            category_name = (overview or {}).get('categoryName')
+            category_name = (overview or {}).get("categoryName")
         except Exception:
             pass
         try:
@@ -340,15 +459,16 @@ def classify_asset_class(ticker: str) -> str:
 
     # Step 2: Try asset_classes quantitative fallback
     if asset_classes:
-        bond_pct = asset_classes.get('bondPosition', 0) or 0
-        stock_pct = asset_classes.get('stockPosition', 0) or 0
-        cash_pct = asset_classes.get('cashPosition', 0) or 0
+        bond_pct = asset_classes.get("bondPosition", 0) or 0
+        stock_pct = asset_classes.get("stockPosition", 0) or 0
+        cash_pct = asset_classes.get("cashPosition", 0) or 0
         if bond_pct >= 0.6:
             return "Bond"
         if stock_pct >= 0.6:
-            if category_name and any(k in category_name.lower() for k in
-                    ["foreign", "international", "world", "global",
-                     "emerging", "europe", "pacific", "intl"]):
+            if category_name and any(
+                k in category_name.lower()
+                for k in ["foreign", "international", "world", "global", "emerging", "europe", "pacific", "intl"]
+            ):
                 return "Intl Equity"
             return "US Equity"
         if cash_pct >= 0.6:
@@ -372,13 +492,16 @@ def classify_asset_class(ticker: str) -> str:
 
     # Step 5: Known money-market / cash-equivalent tickers
     from market_data import KNOWN_ZERO_ER_TICKERS
+
     if ticker in KNOWN_ZERO_ER_TICKERS:
         return "Stable Value"
 
     # Step 6: Fail with visibility
-    sys.stderr.write(f"WARNING: {ticker} could not be classified. "
-                     f"categoryName={category_name}, asset_classes={asset_classes}, "
-                     f"info.category={info_category}\n")
+    sys.stderr.write(
+        f"WARNING: {ticker} could not be classified. "
+        f"categoryName={category_name}, asset_classes={asset_classes}, "
+        f"info.category={info_category}\n"
+    )
     return "UNCLASSIFIED"
 
 
@@ -393,17 +516,17 @@ def get_bond_metrics(ticker: str) -> Optional[Dict[str, Any]]:
         if bh is not None and not bh.empty:
             # bond_holdings DataFrame uses ticker as column name
             col = ticker if ticker in bh.columns else bh.columns[0]
-            if 'Duration' in bh.index:
-                dur = bh.loc['Duration', col]
+            if "Duration" in bh.index:
+                dur = bh.loc["Duration", col]
                 if dur is not None and not pd.isna(dur):
-                    result['duration'] = float(dur)
-            if 'Maturity' in bh.index:
-                mat = bh.loc['Maturity', col]
+                    result["duration"] = float(dur)
+            if "Maturity" in bh.index:
+                mat = bh.loc["Maturity", col]
                 if mat is not None and not pd.isna(mat):
-                    result['maturity'] = float(mat)
+                    result["maturity"] = float(mat)
         br = fd.bond_ratings
         if br:
-            result['ratings'] = br
+            result["ratings"] = br
         return result if result else None
     except Exception:
         return None
@@ -429,7 +552,7 @@ def get_top_holdings(ticker: str) -> Optional[list]:
     try:
         th = fd.top_holdings
         if th is not None and not th.empty:
-            return [(idx, row['Holding Percent']) for idx, row in th.iterrows()]
+            return [(idx, row["Holding Percent"]) for idx, row in th.iterrows()]
         return None
     except Exception:
         return None
@@ -453,19 +576,16 @@ def compute_tracking_error(ticker: str, benchmark: Optional[str] = None, period:
         return None
 
     try:
-        fund_returns = fund_hist['Close'].pct_change().dropna()
-        bench_returns = bench_hist['Close'].pct_change().dropna()
+        fund_returns = fund_hist["Close"].pct_change().dropna()
+        bench_returns = bench_hist["Close"].pct_change().dropna()
 
         # Align dates
-        aligned = pd.DataFrame({
-            'fund': fund_returns,
-            'bench': bench_returns
-        }).dropna()
+        aligned = pd.DataFrame({"fund": fund_returns, "bench": bench_returns}).dropna()
 
         if len(aligned) < 60:
             return None
 
-        tracking_diff = aligned['fund'] - aligned['bench']
+        tracking_diff = aligned["fund"] - aligned["bench"]
         te = tracking_diff.std() * np.sqrt(252)
         return round(float(te), 4)
     except Exception:
@@ -490,10 +610,11 @@ def compute_total_return(ticker: str, period: str = "10y") -> Optional[float]:
         if actual_days < min_years * 365:
             return None  # Insufficient history
 
-        total_return = (hist['Close'].iloc[-1] / hist['Close'].iloc[0]) - 1
+        total_return = (hist["Close"].iloc[-1] / hist["Close"].iloc[0]) - 1
         return round(float(total_return), 4)
     except Exception:
         return None
+
 
 def compute_trailing_return_annualized(ticker: str, period: str) -> Optional[float]:
     """
@@ -509,9 +630,9 @@ def compute_trailing_return_annualized(ticker: str, period: str) -> Optional[flo
         actual_days = (hist.index[-1] - hist.index[0]).days
         if actual_days < 365:
             return None
-        
+
         years = actual_days / 365.25
-        gross_total = (hist['Close'].iloc[-1] / hist['Close'].iloc[0])
+        gross_total = hist["Close"].iloc[-1] / hist["Close"].iloc[0]
         annualized_gross = gross_total ** (1 / years) - 1
         return round(float(annualized_gross), 4)
     except Exception:
@@ -546,7 +667,7 @@ def compute_net_of_fees_return(ticker: str, period: str = "5y") -> Optional[floa
             return None
 
         years = actual_days / 365.25
-        gross_total = (hist['Close'].iloc[-1] / hist['Close'].iloc[0])
+        gross_total = hist["Close"].iloc[-1] / hist["Close"].iloc[0]
         annualized_gross = gross_total ** (1 / years) - 1
 
         # Get expense ratio
@@ -614,7 +735,7 @@ if __name__ == "__main__":
     print("=== Metrics Engine Smoke Test ===\n")
 
     rf = fetch_risk_free_rate()
-    print(f"Risk-Free Rate (^IRX): {rf*100:.2f}%\n")
+    print(f"Risk-Free Rate (^IRX): {rf * 100:.2f}%\n")
 
     test_tickers = {"SPY": "Taxable Brokerage", "QQQ": "Roth IRA", "SCHD": "Tax-Deferred"}
 
@@ -628,7 +749,7 @@ if __name__ == "__main__":
                 print(f"  {key}: N/A")
             elif isinstance(val, float):
                 if "return" in key or "drawdown" in key:
-                    print(f"  {key}: {val*100:.2f}%")
+                    print(f"  {key}: {val * 100:.2f}%")
                 else:
                     print(f"  {key}: {val:.3f}")
             else:
