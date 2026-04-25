@@ -16,9 +16,9 @@ from parsers.fidelity import (
 )
 
 __all__ = [
-    'extract_plan_menu',
-    'extract_current_holdings',
-    'get_plan_menu_tickers',
-    'parse_401k_options_file',
-    'find_401k_options_file',
+    "extract_plan_menu",
+    "extract_current_holdings",
+    "get_plan_menu_tickers",
+    "parse_401k_options_file",
+    "find_401k_options_file",
 ]

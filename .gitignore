@@ -35,3 +35,4 @@ reports/
 trace_output.txt
 data/Portfolio_Analysis_Report.md
 .cache/
+.yfinance_cache/

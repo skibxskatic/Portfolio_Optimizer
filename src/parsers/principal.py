@@ -9,7 +9,6 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 
 from parsers.base import BrokerAdapter
@@ -18,18 +17,18 @@ from parsers.base import BrokerAdapter
 class PrincipalAdapter(BrokerAdapter):
     BROKER_NAME = "Principal"
 
-    _DETECT_KEYWORDS = ['Principal', 'principal.com', 'Principal Financial']
+    _DETECT_KEYWORDS = ["Principal", "principal.com", "Principal Financial"]
 
     def detect(self, filepath: Path) -> bool:
         name_lower = filepath.name.lower()
-        if 'principal' in name_lower:
+        if "principal" in name_lower:
             return True
-        if filepath.suffix.lower() in ('.txt', '.pdf'):
+        if filepath.suffix.lower() in (".txt", ".pdf"):
             try:
-                if filepath.suffix.lower() == '.txt':
-                    sample = filepath.read_text(encoding='utf-8', errors='ignore')[:2000]
+                if filepath.suffix.lower() == ".txt":
+                    sample = filepath.read_text(encoding="utf-8", errors="ignore")[:2000]
                     return any(kw.lower() in sample.lower() for kw in self._DETECT_KEYWORDS)
-                return filepath.suffix.lower() == '.pdf'
+                return filepath.suffix.lower() == ".pdf"
             except Exception:
                 pass
         return False
@@ -39,11 +38,19 @@ class PrincipalAdapter(BrokerAdapter):
 
     def parse_positions(self, filepath: Path) -> pd.DataFrame:
         """Principal has no brokerage CSV — return empty canonical DataFrame."""
-        return pd.DataFrame(columns=[
-            'Symbol', 'Description', 'Account Name', 'Account Type',
-            'Quantity', 'Current Value', 'Cost Basis Total',
-            'Average Cost Basis', 'Expense Ratio',
-        ])
+        return pd.DataFrame(
+            columns=[
+                "Symbol",
+                "Description",
+                "Account Name",
+                "Account Type",
+                "Quantity",
+                "Current Value",
+                "Cost Basis Total",
+                "Average Cost Basis",
+                "Expense Ratio",
+            ]
+        )
 
     def parse_history(self, filepath: Path) -> pd.DataFrame:
         return pd.DataFrame()
@@ -51,13 +58,13 @@ class PrincipalAdapter(BrokerAdapter):
     def parse_401k(self, filepath: Path) -> Tuple[pd.DataFrame, List[str]]:
         """Parse a Principal 401k PDF or extracted text statement."""
         path = Path(filepath)
-        if path.suffix.lower() == '.pdf':
+        if path.suffix.lower() == ".pdf":
             text = _extract_pdf_text(path)
             if not text:
                 return pd.DataFrame(), []
-        elif path.suffix.lower() == '.txt':
+        elif path.suffix.lower() == ".txt":
             try:
-                text = path.read_text(encoding='utf-8')
+                text = path.read_text(encoding="utf-8")
             except Exception:
                 return pd.DataFrame(), []
         else:
@@ -74,9 +81,7 @@ def _extract_pdf_text(path: Path) -> Optional[str]:
         return None
     try:
         reader = PdfReader(str(path))
-        return '\n'.join(
-            page.extract_text() for page in reader.pages if page.extract_text()
-        )
+        return "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
     except Exception as e:
         print(f"⚠️ PDF extraction failed for {path.name}: {e}")
         return None
@@ -87,7 +92,7 @@ def _parse_principal_text(text: str) -> Tuple[pd.DataFrame, List[str]]:
     Extract holdings and plan menu from Principal statement text.
     Looks for fund name + ticker patterns and associated balances.
     """
-    pattern = r'([A-Z][A-Za-z0-9&\' /\-\.]+?)\s*\(([A-Z]{2,6}(?:\d{0,2})?)\)'
+    pattern = r"([A-Z][A-Za-z0-9&\' /\-\.]+?)\s*\(([A-Z]{2,6}(?:\d{0,2})?)\)"
     matches = re.findall(pattern, text)
 
     plan_menu: Dict[str, str] = {}
@@ -108,17 +113,19 @@ def _parse_principal_text(text: str) -> Tuple[pd.DataFrame, List[str]]:
     holdings = []
     for display_name, ticker in plan_menu.items():
         escaped = re.escape(ticker)
-        m = re.search(rf'{escaped}.*?\$([\d,]+\.?\d*)', text, re.DOTALL)
+        m = re.search(rf"{escaped}.*?\$([\d,]+\.?\d*)", text, re.DOTALL)
         if m:
-            balance = float(m.group(1).replace(',', ''))
-            holdings.append({
-                'Symbol': ticker,
-                'Description': display_name,
-                'Current Value': balance,
-                'Cost Basis Total': 0.0,
-                'Account Name': '401k',
-                'Account Type': 'Employer 401k',
-            })
+            balance = float(m.group(1).replace(",", ""))
+            holdings.append(
+                {
+                    "Symbol": ticker,
+                    "Description": display_name,
+                    "Current Value": balance,
+                    "Cost Basis Total": 0.0,
+                    "Account Name": "401k",
+                    "Account Type": "Employer 401k",
+                }
+            )
 
     holdings_df = pd.DataFrame(holdings)
     plan_tickers = sorted(set(plan_menu.values()))

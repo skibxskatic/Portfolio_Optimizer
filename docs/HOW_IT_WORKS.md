@@ -53,77 +53,46 @@ Not all investment accounts are taxed the same way. The Optimizer uses a **5-Tie
 
 ## 4. Grading Your Current Funds
 
-The report's **Asset Holding Breakdown** groups your funds by account type — Taxable Brokerage, Roth IRA, HSA, and Employer 401k — each under its own sub-header. For each non-401k fund, the Optimizer asks two questions:
+The report now organizes your data by **Account Analysis**. Each sub-section (e.g., *Joint Brokerage*, *Roth IRA*) contains its own dedicated holdings table. For each fund, the Optimizer asks two questions:
 1. **Are you overpaying for this?** It flags any fund that charges you more than 0.40% a year in fees (the "Expense Ratio").
 2. **Is it worth the fee?** It calculates the **Net-of-Fees Return** over the last 5 years. If you are paying a high fee, but the fund is actually making you *more* money than the cheaper alternatives even after the fee is subtracted, the Optimizer will happily tell you to "Keep" it. It only tells you to "Evaluate" or "Replace" a fund if it is mathematically underperforming cheaper options.
 
-Your 401k holdings are shown as a summary with a pointer to the dedicated **401k Plan Analysis** section, where they receive full scoring, rebalance recommendations, and underperformance flags.
+## 5. Account Analysis & Action Plans
 
-## 5. Finding Replacements
+Instead of a generic list of recommendations, the report now provides a **Consolidated Target Portfolio** blueprint for every single account you own.
 
-If the Optimizer thinks you can do better, it goes out to the internet, scrapes a live list of the top 60-80 ETFs and Mutual Funds in the world right now, and grades them.
+### 5a. Strategy-Aligned Scoring
+Within each account section, the engine scores your holdings using risk mathematics tailored to that account's purpose:
+*   **Taxable Accounts (Joint, Individual):** Uses the **Sharpe Ratio** (reward per unit of total risk) and rewards funds with low dividend yields to minimize annual tax drag.
+*   **Tax-Free Accounts (Roth IRA, HSA):** Uses the **Sortino Ratio** (reward per unit of *downside* risk) and prioritizes aggressive growth. Since growth is tax-free, the engine ignores "good" upward volatility and focuses on maximizing your total compounding speed.
 
-It **does not recommend individual stocks** (like Apple or Tesla). It only recommends diversified index funds and ETFs to ensure your portfolio remains safe and stable.
+### 5b. The "🔴 Sell & Consolidate" Label
+In each account section, look for the **Candidates for Consolidation** table.
+- If an existing fund lags significantly behind the top-ranked alternatives, it is marked with a **🔴 Sell & Consolidate** instruction.
+- The engine calculates the **"Gap vs Best"** — showing you exactly how much performance you are losing by holding that fund instead of the top recommendation.
 
-It scores these replacements using advanced risk mathematics:
-* **For your Taxable Brokerage and 401k:** It uses the **Sharpe Ratio**, which measures how smooth and consistent a fund's growth is. It actively penalizes funds that are a wild rollercoaster.
-* **For your Roth IRA and HSA:** It uses the **Sortino Ratio**, which is similar, but it *only* penalizes a fund if it crashes downward. It doesn't penalize a fund for unexpectedly shooting upward, which is exactly what you want in a permanently tax-free growth account.
+### 5c. Target Allocation Blueprint
+Each account section includes a target percentage table (e.g., 28.4%, 15.2%). 
+- **Action:** Sell all funds marked "🔴 Sell" and re-distribute the entire account value according to these percentages.
+- **Precision:** The target numbers are mathematically guaranteed to sum to exactly **100.0%**, making it easy to input your new elections into Fidelity.
 
-**Note on emerging funds:** Any fund with less than 3 years of price history is flagged with `⚠️ < 3Y History` and shown in a separate "Emerging Funds" sub-section below each bucket's main ranked table. This prevents a fund's short-term Sortino score from being compared head-to-head against a fund with 10 years of data.
+### 5d. Account-Specific Cash Mapping
+If you have uninvested cash (like SPAXX or CORE) sitting in an account, the report tells you exactly how much is available *in that specific account* and how to deploy it according to the target blueprint.
 
-## 6. 401k Plan Evaluation
+## 6. Specialized 401k Plan Scorecard
 
-If you drop your 401k **Investment Options PDF** (after extracting the text) into the `Drop_Financial_Info_Here/` folder, the Optimizer will automatically:
+Your **Employer 401k** section is the most advanced. Because you are restricted to a small menu of funds, the Optimizer:
+1. **Discovers your plan menu** — It dynamically extracts *every* fund your employer offers.
+2. **Scores everything** — It ranks every fund in your plan from #1 to the bottom based on your age and retirement horizon.
+3. **Identifies Gaps** — It highlights top-scoring funds you *don't* currently hold and flags your weakest holdings for removal.
+4. **Age-Aware Glide Path:** It calculates exactly what percentage to put in each fund based on a piecewise linear "glide path" (e.g., 90% stocks for younger investors, 50% for those near retirement).
 
-1. **Read your current 401k holdings** — It detects the funds you currently own, their balances, and cost basis directly from your Investment Options page.
-2. **Discover your plan menu** — It dynamically extracts *every* fund your employer offers in the plan. No hardcoding required — it works for any employer.
-3. **Constrain recommendations to your plan** — Unlike the Roth IRA or Taxable accounts (where you can buy anything), your 401k is limited to the funds in your employer's menu. The Optimizer respects this constraint and **only recommends funds you can actually buy** in your 401k.
-4. **Identify Rebalance Opportunities** — It highlights the top 5 highest-scoring funds in your plan that you *don't* currently hold, giving you exact reasons why you might want to switch to them.
-5. **Flag Underperforming Holdings** — If any fund you currently hold ranks in the bottom half of your employer's menu, it flags it for a potential allocation reduction.
+## 7. Age-Aware Personalization & Risk Tolerance
 
-This means the 401k analysis section in your report gives you a complete, personalized scorecard of your specific employer plan.
-
-## 7. Age-Aware 401k Allocation Recommendations
-
-If you have a 401k plan, the Optimizer goes one step further: it tells you **exactly what percentage to put in each fund** based on how close you are to retirement.
-
-**How it works:**
-
-1. **Your Investor Profile:** The Optimizer looks for a file called `investor_profile.txt` in the `Drop_Financial_Info_Here/` folder. This simple text file contains your birth year and target retirement year. We recommend completing this file for the most accurate, personalized analysis. If it doesn't exist, the Optimizer uses default assumptions and notes it in the report.
-
-2. **The Glide Path:** Based on how many years you have until retirement, the Optimizer uses a "glide path" — a well-established investment principle where younger investors hold more stocks (higher growth, more risk) and gradually shift toward bonds (lower growth, lower risk) as retirement approaches:
-   - **40+ years out:** 90% stocks / 10% bonds
-   - **25 years out:** 80% stocks / 20% bonds
-   - **10 years out:** 60% stocks / 40% bonds
-   - **At retirement:** 50% stocks / 50% bonds
-   - **7 years past retirement:** 30% stocks / 70% bonds
-
-3. **Fund Classification:** The Optimizer automatically categorizes every fund in your employer's plan and determines your **Plan Objective** (e.g., "Maximum Growth" for young investors vs. "Income & Stability" for those near retirement).
-
-4. **Score-Weighted Allocation:** Within each asset class, the top-scoring funds receive a larger share of the allocation. Every recommended fund gets at least a 5% minimum allocation.
-
-5. **The Recommendation Table:** The report shows a clear table with each recommended fund, its asset class, your current percentage, the target percentage, the change needed, and a simple action word (Add, Increase, Reduce, Hold, or Remove).
-
-## 8. Age-Aware Personalization & Risk Tolerance
-
-Beyond 401k allocation, the Optimizer uses your investor profile to personalize recommendations across **every** account type:
-
-- **Risk Tolerance:** You can set your risk tolerance in your investor profile (`very_conservative` through `very_aggressive`). If you don't, the Optimizer auto-calculates it from your age and retirement year. This controls how the Optimizer balances fund *performance* against fund *stability* — conservative investors get recommendations that prioritize steadiness, while aggressive investors get maximum-growth picks.
-- **Stability Score:** Every fund receives a stability score (0-100) based on how small its worst crash was and how closely it tracks the overall market. This is blended with the performance score based on your risk tolerance.
-- **Risk-Calibrated Scoring:** The mathematical weights used to score replacement funds shift based on how many years you have until retirement. Young investors get higher weight on growth metrics; near-retirement investors get higher weight on risk and drawdown metrics.
-- **Portfolio Risk Profile:** Section 1 of the report compares your actual equity allocation (across all accounts) to the target for your age, flagging if rebalancing is needed.
-- **Holdings Flags:** If you hold conservative funds (bonds, stable value) in a growth account like Roth IRA when you're young, or aggressive high-beta funds when you're near retirement, the report flags it in the Suggested Action column.
-- **Replacement Penalties:** Replacement fund candidates that are age-inappropriate for your Roth IRA (e.g., bonds for young investors, high-beta for near-retirement) receive a soft scoring penalty.
-- **TLH Urgency:** Tax-loss harvesting candidates are labeled with urgency levels — "High" for near-retirement investors who have a shorter window to utilize harvested losses.
-
-## 8a. Portfolio Rebalancing Plan (Section 5f)
-
-The Optimizer now tells you **exactly how to allocate** your uninvested cash across recommended funds for each account:
-
-1. **Core Position Detection:** If you have money sitting in a money-market fund (like SPAXX or FDRXX), the Optimizer automatically detects it and treats it as deployable cash.
-2. **Score-Weighted Allocation:** For each account (Roth IRA, Taxable Brokerage, HSA), the Optimizer takes the top-scoring recommended funds and assigns each a target allocation percentage based on its score. Every fund gets at least 5% to maintain diversification.
-3. **Existing Holdings Comparison:** If you already hold funds in the account, the report shows how each existing fund's key metric (Sortino for Roth/HSA, Sharpe for Taxable) compares against the top recommendation, so you can decide whether to keep or replace.
-4. **Manual Override:** You can specify exact contribution amounts in your investor profile instead of relying on auto-detection.
+The Optimizer uses your **Investor Profile** (`investor_profile.txt`) to personalize everything:
+- **Risk Tolerance:** Adjusts how much performance is traded for stability (Stability Score).
+- **Time Horizon:** Shifts the "Lookback Zone" — younger investors get higher weight on long-term growth; near-retirement investors get higher weight on safety and drawdown protection.
+- **Horizon Match:** If you hold "lazy" bonds in a growth account like a Roth IRA while you're young, the report will flag it as age-inappropriate.
 
 ## 9. Saving You Taxes (Harvesting & Capital Gains)
 

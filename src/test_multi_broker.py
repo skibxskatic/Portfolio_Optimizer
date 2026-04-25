@@ -27,7 +27,7 @@ from parsers.fidelity import FidelityAdapter
 TEST_DATA = _src_dir / "test_data"
 
 # Canonical columns every adapter must produce (or at least the critical ones)
-CRITICAL_COLS = {'Symbol', 'Quantity', 'Current Value'}
+CRITICAL_COLS = {"Symbol", "Quantity", "Current Value"}
 
 
 def test_schwab_detection():
@@ -63,23 +63,23 @@ def test_schwab_parse():
     passed = passed and cols_ok
 
     # Check renamed columns (Qty -> Quantity, Market Value -> Current Value)
-    qty_ok = 'Quantity' in df.columns and df['Quantity'].notna().all()
+    qty_ok = "Quantity" in df.columns and df["Quantity"].notna().all()
     print(f"  Qty -> Quantity rename: {qty_ok} [{'PASS' if qty_ok else 'FAIL'}]")
     passed = passed and qty_ok
 
-    val_ok = 'Current Value' in df.columns and df['Current Value'].notna().all()
+    val_ok = "Current Value" in df.columns and df["Current Value"].notna().all()
     print(f"  Market Value -> Current Value rename: {val_ok} [{'PASS' if val_ok else 'FAIL'}]")
     passed = passed and val_ok
 
     # Check numeric parsing (dollar signs and commas stripped)
-    first_val = df['Current Value'].iloc[0]
+    first_val = df["Current Value"].iloc[0]
     numeric_ok = isinstance(first_val, (int, float)) and first_val > 0
     print(f"  Numeric parsing: {first_val} [{'PASS' if numeric_ok else 'FAIL'}]")
     passed = passed and numeric_ok
 
     # Check symbols
-    symbols = df['Symbol'].tolist()
-    symbols_ok = symbols == ['SPY', 'VOO', 'SCHD', 'VTI']
+    symbols = df["Symbol"].tolist()
+    symbols_ok = symbols == ["SPY", "VOO", "SCHD", "VTI"]
     print(f"  Symbols: {symbols} [{'PASS' if symbols_ok else 'FAIL'}]")
     passed = passed and symbols_ok
 
@@ -118,24 +118,24 @@ def test_vanguard_parse():
     passed = passed and cols_ok
 
     # Check renamed columns (Shares -> Quantity)
-    qty_ok = 'Quantity' in df.columns and df['Quantity'].notna().all()
+    qty_ok = "Quantity" in df.columns and df["Quantity"].notna().all()
     print(f"  Shares -> Quantity rename: {qty_ok} [{'PASS' if qty_ok else 'FAIL'}]")
     passed = passed and qty_ok
 
     # Check derived Average Cost Basis
-    acb_ok = 'Average Cost Basis' in df.columns and df['Average Cost Basis'].notna().all()
+    acb_ok = "Average Cost Basis" in df.columns and df["Average Cost Basis"].notna().all()
     print(f"  Derived Average Cost Basis: {acb_ok} [{'PASS' if acb_ok else 'FAIL'}]")
     passed = passed and acb_ok
 
     # Check numeric parsing
-    first_val = df['Current Value'].iloc[0]
+    first_val = df["Current Value"].iloc[0]
     numeric_ok = isinstance(first_val, (int, float)) and first_val > 0
     print(f"  Numeric parsing: {first_val} [{'PASS' if numeric_ok else 'FAIL'}]")
     passed = passed and numeric_ok
 
     # Check symbols
-    symbols = df['Symbol'].tolist()
-    symbols_ok = symbols == ['VTI', 'VXUS', 'VOO', 'BND']
+    symbols = df["Symbol"].tolist()
+    symbols_ok = symbols == ["VTI", "VXUS", "VOO", "BND"]
     print(f"  Symbols: {symbols} [{'PASS' if symbols_ok else 'FAIL'}]")
     passed = passed and symbols_ok
 
@@ -180,35 +180,35 @@ def test_generic_parse():
     passed = passed and cols_ok
 
     # Check fuzzy renames: Ticker -> Symbol
-    sym_ok = 'Symbol' in df.columns
-    symbols = df['Symbol'].tolist() if sym_ok else []
+    sym_ok = "Symbol" in df.columns
+    symbols = df["Symbol"].tolist() if sym_ok else []
     print(f"  Ticker -> Symbol: {symbols} [{'PASS' if sym_ok and 'SPY' in symbols else 'FAIL'}]")
-    passed = passed and sym_ok and 'SPY' in symbols
+    passed = passed and sym_ok and "SPY" in symbols
 
     # Check fuzzy renames: Portfolio Value -> Current Value (via 'value' match)
     # Note: POSITIONS_FUZZY_MAP maps 'Current Value' candidates: 'portfolio value' matches
-    val_ok = 'Current Value' in df.columns and df['Current Value'].notna().all()
+    val_ok = "Current Value" in df.columns and df["Current Value"].notna().all()
     print(f"  Portfolio Value -> Current Value: {val_ok} [{'PASS' if val_ok else 'FAIL'}]")
     passed = passed and val_ok
 
     # Check fuzzy renames: Units -> Quantity
-    qty_ok = 'Quantity' in df.columns and df['Quantity'].notna().all()
+    qty_ok = "Quantity" in df.columns and df["Quantity"].notna().all()
     print(f"  Units -> Quantity: {qty_ok} [{'PASS' if qty_ok else 'FAIL'}]")
     passed = passed and qty_ok
 
     # Check fuzzy renames: Fund Name -> Description
-    desc_ok = 'Description' in df.columns
+    desc_ok = "Description" in df.columns
     print(f"  Fund Name -> Description: {desc_ok} [{'PASS' if desc_ok else 'FAIL'}]")
     passed = passed and desc_ok
 
     # Check fuzzy renames: Portfolio -> Account Name
-    acct_ok = 'Account Name' in df.columns
+    acct_ok = "Account Name" in df.columns
     print(f"  Portfolio -> Account Name: {acct_ok} [{'PASS' if acct_ok else 'FAIL'}]")
     passed = passed and acct_ok
 
     # Check numeric parsing (dollar signs + commas stripped)
     if val_ok:
-        first_val = df['Current Value'].iloc[0]
+        first_val = df["Current Value"].iloc[0]
         numeric_ok = isinstance(first_val, (int, float)) and first_val > 0
         print(f"  Numeric parsing: {first_val} [{'PASS' if numeric_ok else 'FAIL'}]")
         passed = passed and numeric_ok
@@ -223,7 +223,7 @@ def test_fidelity_not_confused():
     adapter = FidelityAdapter()
     passed = True
 
-    for name in ['Test_Schwab_Positions.csv', 'Test_Vanguard_Positions.csv', 'Test_Generic_Positions.csv']:
+    for name in ["Test_Schwab_Positions.csv", "Test_Vanguard_Positions.csv", "Test_Generic_Positions.csv"]:
         path = TEST_DATA / name
         detected = adapter.detect(path)
         ok = not detected

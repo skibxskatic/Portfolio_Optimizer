@@ -707,7 +707,7 @@ def get_fund_metrics(ticker: str, account_type: str) -> Dict[str, Any]:
         result["max_drawdown"] = compute_max_drawdown(ticker, "5y")
         result["tracking_error"] = compute_tracking_error(ticker, period="5y")
 
-    elif account_type == "Roth IRA":
+    elif account_type in ("Roth IRA", "HSA"):
         result["sortino_ratio"] = compute_sortino_ratio(ticker, "5y")
         result["max_drawdown"] = compute_max_drawdown(ticker, "5y")
         total_10y = compute_total_return(ticker, "10y")

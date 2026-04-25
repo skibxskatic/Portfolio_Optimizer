@@ -18,15 +18,15 @@ from parsers.base import BrokerAdapter
 class TRowePriceAdapter(BrokerAdapter):
     BROKER_NAME = "T. Rowe Price"
 
-    _DETECT_KEYWORDS = ['T. Rowe Price', 'troweprice', 'T.RowePrice', 'TROWEPRICE']
+    _DETECT_KEYWORDS = ["T. Rowe Price", "troweprice", "T.RowePrice", "TROWEPRICE"]
 
     def detect(self, filepath: Path) -> bool:
         name_lower = filepath.name.lower()
-        if 'troweprice' in name_lower or 't rowe' in name_lower or 't_rowe' in name_lower:
+        if "troweprice" in name_lower or "t rowe" in name_lower or "t_rowe" in name_lower:
             return True
-        if filepath.suffix.lower() in ('.txt', '.csv'):
+        if filepath.suffix.lower() in (".txt", ".csv"):
             try:
-                sample = filepath.read_text(encoding='utf-8', errors='ignore')[:2000]
+                sample = filepath.read_text(encoding="utf-8", errors="ignore")[:2000]
                 return any(kw.lower() in sample.lower() for kw in self._DETECT_KEYWORDS)
             except Exception:
                 pass
@@ -35,39 +35,39 @@ class TRowePriceAdapter(BrokerAdapter):
     def detect_401k(self, filepath: Path) -> bool:
         if not self.detect(filepath):
             return False
-        if filepath.suffix.lower() in ('.pdf', '.txt'):
+        if filepath.suffix.lower() in (".pdf", ".txt"):
             try:
-                if filepath.suffix.lower() == '.txt':
-                    sample = filepath.read_text(encoding='utf-8', errors='ignore')[:3000]
-                    return 'Balance' in sample or 'Fund' in sample or 'Investment' in sample
+                if filepath.suffix.lower() == ".txt":
+                    sample = filepath.read_text(encoding="utf-8", errors="ignore")[:3000]
+                    return "Balance" in sample or "Fund" in sample or "Investment" in sample
             except Exception:
                 pass
-            return filepath.suffix.lower() == '.pdf'
+            return filepath.suffix.lower() == ".pdf"
         return False
 
     def parse_positions(self, filepath: Path) -> pd.DataFrame:
         """Basic CSV fallback for T. Rowe Price CSV exports."""
         path = Path(filepath)
-        if not path.exists() or path.suffix.lower() not in ('.csv',):
+        if not path.exists() or path.suffix.lower() not in (".csv",):
             return pd.DataFrame()
 
         try:
-            df = pd.read_csv(path, engine='python', on_bad_lines='skip')
+            df = pd.read_csv(path, engine="python", on_bad_lines="skip")
         except Exception:
             return pd.DataFrame()
 
         df.columns = df.columns.str.strip()
-        df.dropna(how='all', inplace=True)
+        df.dropna(how="all", inplace=True)
 
         # Generic column mapping
         col_map = {}
         cols_lower = {c.lower(): c for c in df.columns}
         for canonical, candidates in [
-            ('Current Value', ['market value', 'balance', 'value']),
-            ('Quantity', ['shares', 'units', 'qty']),
-            ('Cost Basis Total', ['cost basis', 'total cost']),
-            ('Average Cost Basis', ['avg cost', 'average cost', 'cost per share']),
-            ('Account Name', ['account', 'account title']),
+            ("Current Value", ["market value", "balance", "value"]),
+            ("Quantity", ["shares", "units", "qty"]),
+            ("Cost Basis Total", ["cost basis", "total cost"]),
+            ("Average Cost Basis", ["avg cost", "average cost", "cost per share"]),
+            ("Account Name", ["account", "account title"]),
         ]:
             for cand in candidates:
                 if cand in cols_lower:
@@ -75,10 +75,10 @@ class TRowePriceAdapter(BrokerAdapter):
                     break
 
         df = df.rename(columns=col_map)
-        if 'Expense Ratio' not in df.columns:
-            df['Expense Ratio'] = np.nan
-        if 'Account Type' not in df.columns:
-            df['Account Type'] = 'Employer 401k'
+        if "Expense Ratio" not in df.columns:
+            df["Expense Ratio"] = np.nan
+        if "Account Type" not in df.columns:
+            df["Account Type"] = "Employer 401k"
 
         return df
 
@@ -92,13 +92,13 @@ class TRowePriceAdapter(BrokerAdapter):
         For TXT files: parse directly.
         """
         path = Path(filepath)
-        if path.suffix.lower() == '.pdf':
+        if path.suffix.lower() == ".pdf":
             text = _extract_pdf_text(path)
             if not text:
                 return pd.DataFrame(), []
-        elif path.suffix.lower() == '.txt':
+        elif path.suffix.lower() == ".txt":
             try:
-                text = path.read_text(encoding='utf-8')
+                text = path.read_text(encoding="utf-8")
             except Exception:
                 return pd.DataFrame(), []
         else:
@@ -115,9 +115,7 @@ def _extract_pdf_text(path: Path) -> Optional[str]:
         return None
     try:
         reader = PdfReader(str(path))
-        return '\n'.join(
-            page.extract_text() for page in reader.pages if page.extract_text()
-        )
+        return "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
     except Exception as e:
         print(f"⚠️ PDF extraction failed for {path.name}: {e}")
         return None
@@ -129,7 +127,7 @@ def _parse_trp_text(text: str) -> Tuple[pd.DataFrame, List[str]]:
     Looks for fund name + ticker patterns and associated balances.
     """
     # Reuse the same regex pattern used by the Fidelity adapter
-    pattern = r'([A-Z][A-Za-z0-9&\' /\-\.]+?)\s*\(([A-Z]{2,6}(?:\d{0,2})?)\)'
+    pattern = r"([A-Z][A-Za-z0-9&\' /\-\.]+?)\s*\(([A-Z]{2,6}(?:\d{0,2})?)\)"
     matches = re.findall(pattern, text)
 
     plan_menu: Dict[str, str] = {}
@@ -151,17 +149,19 @@ def _parse_trp_text(text: str) -> Tuple[pd.DataFrame, List[str]]:
     for display_name, ticker in plan_menu.items():
         escaped = re.escape(ticker)
         # Look for dollar balance near the ticker
-        m = re.search(rf'{escaped}.*?\$([\d,]+\.?\d*)', text, re.DOTALL)
+        m = re.search(rf"{escaped}.*?\$([\d,]+\.?\d*)", text, re.DOTALL)
         if m:
-            balance = float(m.group(1).replace(',', ''))
-            holdings.append({
-                'Symbol': ticker,
-                'Description': display_name,
-                'Current Value': balance,
-                'Cost Basis Total': 0.0,
-                'Account Name': '401k',
-                'Account Type': 'Employer 401k',
-            })
+            balance = float(m.group(1).replace(",", ""))
+            holdings.append(
+                {
+                    "Symbol": ticker,
+                    "Description": display_name,
+                    "Current Value": balance,
+                    "Cost Basis Total": 0.0,
+                    "Account Name": "401k",
+                    "Account Type": "Employer 401k",
+                }
+            )
 
     holdings_df = pd.DataFrame(holdings)
     plan_tickers = sorted(set(plan_menu.values()))

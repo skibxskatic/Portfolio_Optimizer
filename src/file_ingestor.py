@@ -242,10 +242,10 @@ def _parse_structured_file(path: Path, fmt: str) -> Tuple[pd.DataFrame, List[str
 
     # Extract original names if available
     name_col = cols.get("fund name") or cols.get("description") or cols.get("name")
-    
+
     holdings = []
     plan_menu = {}
-    
+
     for _, row in df.iterrows():
         sym = str(row.get(ticker_col, "")).strip()
         if not re.match(r"^[A-Z]{1,6}$", sym):

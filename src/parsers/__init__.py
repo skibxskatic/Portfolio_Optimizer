@@ -23,11 +23,11 @@ ADAPTER_REGISTRY = [
 ]
 
 __all__ = [
-    'ADAPTER_REGISTRY',
-    'FidelityAdapter',
-    'SchwabAdapter',
-    'VanguardAdapter',
-    'TRowePriceAdapter',
-    'PrincipalAdapter',
-    'GenericAdapter',
+    "ADAPTER_REGISTRY",
+    "FidelityAdapter",
+    "SchwabAdapter",
+    "VanguardAdapter",
+    "TRowePriceAdapter",
+    "PrincipalAdapter",
+    "GenericAdapter",
 ]

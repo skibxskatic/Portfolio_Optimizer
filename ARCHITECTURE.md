@@ -28,10 +28,22 @@ graph TD
     E --> F[.yfinance_cache]
     D --> G[metrics.py]
     D --> H[tax_rates.py]
-    D --> I[HTML Report]
+    D --> I[Account-First HTML Report]
 ```
 
-## 3. Core Logic: 6-Tier Stable Routing Engine (v2)
+## 3. Reporting Hierarchy (Account-First)
+The report is structured to be immediately actionable by organizing around individual accounts rather than global strategies:
+1. **Executive Summary**: High-level priority actions and portfolio-wide risk metrics.
+2. **Portfolio Concentration**: Global sector exposure and holding overlap across all accounts.
+3. **Tax Optimization**: Tax-loss harvesting and capital gains analysis for taxable accounts.
+4. **Account Analysis (Per-Account)**: Individual sections for every account (Joint, Roth, HSA, 401k) containing:
+   - Current Holdings & Performance
+   - Target Allocation (Consolidated Blueprint)
+   - Rebalancing Actions (🔴 Sell & Consolidate labels)
+   - Account-Specific Cash Mapping
+5. **Next Steps & Methodology**: Long-term maintenance plan and mathematical scoring rationale.
+
+## 4. Core Logic: 6-Tier Stable Routing Engine (v2)
 To ensure tax efficiency and strategic alignment, assets are routed through six hierarchical tiers:
 1. **Account-Specific Anchors**: Permanent assignment based on account name (e.g., Joint Brokerage).
 2. **Whitelist**: Core index fund anchoring (VTI, QQQ, VOO).

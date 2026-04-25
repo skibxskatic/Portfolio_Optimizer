@@ -17,11 +17,11 @@ def test_classify_asset_class():
     print("=== Test: classify_asset_class ===")
     metrics.clear_cache()
     cases = {
-        "CDDYX": "US Equity",   # Columbia Dividend Income — was Bond (the bug)
-        "VBTLX": "Bond",        # Vanguard Total Bond Market
+        "CDDYX": "US Equity",  # Columbia Dividend Income — was Bond (the bug)
+        "VBTLX": "Bond",  # Vanguard Total Bond Market
         "VTIAX": "Intl Equity",  # Vanguard Total Intl Stock
-        "SPY":   "US Equity",   # S&P 500 ETF (uses info.category path)
-        "AGG":   "Bond",        # iShares Core Aggregate Bond ETF
+        "SPY": "US Equity",  # S&P 500 ETF (uses info.category path)
+        "AGG": "Bond",  # iShares Core Aggregate Bond ETF
     }
     passed = 0
     for ticker, expected in cases.items():
@@ -161,7 +161,7 @@ if __name__ == "__main__":
     ]
     passed = sum(results)
     total = len(results)
-    print(f"{'='*40}")
+    print(f"{'=' * 40}")
     print(f"RESULTS: {passed}/{total} test suites passed")
     if passed == total:
         print("ALL TESTS PASSED")
